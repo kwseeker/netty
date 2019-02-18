@@ -1,4 +1,4 @@
-package top.kwseeker.iodemo;
+package top.kwseeker.iodemo.nio;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -46,7 +46,7 @@ public class NioClient {
             e.printStackTrace();
             System.exit(1);
         }
-        while(stopped){
+        while(!stopped){
             try {
                 selector.select(1000);
                 Set<SelectionKey> selectedkeys = selector.selectedKeys();

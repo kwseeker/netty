@@ -1,4 +1,4 @@
-package top.kwseeker.iodemo;
+package top.kwseeker.iodemo.aio;
 
 public class AioServer {
 }
