@@ -78,9 +78,8 @@
         FilePermission
         FileInputStream （字节流的方式写文件）  
         FileOutputStream （字节流的方式读文件）  
-        FileReader （字符流的方式读文件）   
+        FileReader （字符流的方式读文件，继承InputStreamReader）   
         FileWriter （字符流的方式写文件）  
-       
     
 + 线程间的通信  
 
