@@ -15,25 +15,64 @@
 + 内存
 + 标准IO（in/out/err）
 
-数据传输形式：
+数据传输形式：  
+除非可以共享内存，否则线程之间数据共享（传输）都是以数据序列的形式传输的，即流。
+RPC对象的序列化就是在内部把一块内存数据转化为字符序列。
+
 + 字节流
+    以字节为单位
 + 字符流
+    以字符为单位
 
 数据的基本操作：
 
 ### Java IO 包（java.io）
 
-核心类：
+Java IO 类UML：  
+![Java io](picture/java-io.png)
 
-抽象读写工具类，在其基础上实现了众多的读写器
+核心抽象类：
 
-+ Writer
+字符流依赖字节流实现；  
+抽象读写工具类，在其基础上实现了众多的读写器。
 
++ Writer  
+
+    field:  
+    &emsp; char[] writeBuffer;  (默认1024字符大小)  
+    &emsp; Object lock;         (写方法都加了synchronized锁，都是线程安全的)  
+    
+    method:   
+    &emsp; 定义或实现了 append() write() flush() close() 等方法；
+    
 + Reader
+
+    field:   
+    &emsp; Object lock;         (skip()是线程安全的)  
+    
+    method:   
+    &emsp; 定义或实现了 read() mark() markSupported() ready() reset() skip() close() 等方法；  
+    &emsp; mark() 标记流当前位置；  
+    &emsp; ready() 流是否可读；  
+    &emsp; skip() 跳过N个字符，并把跳过的字符存到skipBuffer中；  
+    &emsp; reset() 如果有mark操作则指定当前位置为mark的位置，否则根据具体实现类重置当前位置；  
+    
++ OutputStream
+
+    field：  
+    &emsp; Non
+    
+    method:  
+    &emsp; 和 Writer 方法相同；但是调用了内核的 write 方法，即这个类提供了与内核交互的接口。  
 
 + InputStream
 
-+ OutputStream
+    field：  
+    &emsp; Non
+    
+    method:  
+    &emsp; 和 Reader 方法基本相同，available()替代了ready()；
+    调用了内核的 read 方法，即这个类提供了与内核交互的接口。  
 
 其他类：
 
@@ -64,6 +103,13 @@
 
 12.++Converting between Bytes and Characters 按照一定的编码/解码标准将字节流转换为字符流，或进行反向转换（Stream到Reader,Writer的转换类）++：**InputStreamReader**、**OutputStreamWriter**  
 
+重点讲解：  
+
++ OutputStreamWriter
+
++ FileWriter
+
+
 ### Java IO 包的使用
 
 + 文件读写、随机访问、路径控制
@@ -72,20 +118,31 @@
     
         File （指代一个文件或目录，继承 Serializable 和 Comparable<File> 接口）  
         FileSystem  
+        &emsp; WinNTFileSystem  
         FileDescriptor  
-        FileFilter  
-        FilenameFilter
-        FilePermission
+        FileFilter   
+        FilenameFilter  
+        FilePermission  
+        FileDescriptor  
         FileInputStream （字节流的方式写文件）  
         FileOutputStream （字节流的方式读文件）  
         FileReader （字符流的方式读文件，继承InputStreamReader）   
         FileWriter （字符流的方式写文件）  
+        RandomAccessFile  
+ 
++ 内存的读写
+
+    这里的内存指的是应用临时存储数据的空间，如一个数组一个String对象。
+    
+    - 相关类
+        
+        CharArrayReader  （可以以字符流的方式读取char数组）  
+        
+        
     
 + 线程间的通信  
 
 + 应用间的网络通信
-
-+ 内存的读写
 
 + 标准IO输入输出
 
