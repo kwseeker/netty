@@ -2,7 +2,7 @@
 
 参考： 
 
-[Java IO Tutorial](http://tutorials.jenkov.com/java-io/index.html)
+[Java IO Tutorial](http://tutorials.jenkov.com/java-io/index.html)  
 
 ### Java IO的作用
 
@@ -60,7 +60,7 @@ Java IO 类UML：
 + OutputStream
 
     field：  
-    &emsp; Non
+    &emsp; Nan
     
     method:  
     &emsp; 和 Writer 方法相同；但是调用了内核的 write 方法，即这个类提供了与内核交互的接口。  
@@ -68,7 +68,7 @@ Java IO 类UML：
 + InputStream
 
     field：  
-    &emsp; Non
+    &emsp; Nan
     
     method:  
     &emsp; 和 Reader 方法基本相同，available()替代了ready()；
@@ -137,16 +137,87 @@ Java IO 类UML：
     - 相关类
         
         CharArrayReader  （可以以字符流的方式读取char数组）  
-        
-        
+        CharArrayWriter  
+        BufferedReader  
+        BufferedWriter  (提供Writer实例的缓冲)
+        ByteArrayInputStream
+        ByteArrayOutputStream
+        BufferedInputStream
+        BufferedOutputStream
+        StringReader  
+        StringWriter  
     
 + 线程间的通信  
-
+    
+    - 相关类
+        
+        PipedInputStream （字节流的形式）
+        PipedOutputStream
+        PipedReader （字符流的形式） 
+        PipedWriter  
+        
 + 应用间的网络通信
 
 + 标准IO输入输出
 
-+ 
++ 过滤流
+    
+    - 相关类
+    
+        FilterInputStream
+        FilterOutputStream
 
++ 工具类流
+    
+    - 相关类
+        
+        PushbackInputStream (预读并推回)  
+        PushbackReader  
+        SequenceInputStream (多个流的数据合并到一个流)  
+        DataInputStream (从InputStream中读取Primitives类型数据)  
+        DataOutputStream  
+        PrintStream  
+        PrintWriter  
+        ObjectInputStream  
+        ObjectOutputStream  
+        InputStreamReader  
+        OutputStreamWriter  
+        LineNumberReader  
+        StreamTokenizer  
 
++ 各种流的相互转换
+    
+    - 转换的原理
+    
+        BufferedReader  
+        BufferedWriter  (提供Writer实例的缓冲)
+        BufferedInputStream
+        BufferedOutputStream
+        InputStreamReader  
+        OutputStreamWriter  
+        
+    - 案例
+    
+### LinuxIO子系统及内核IO模型 (TODO)
+
+目标：  
+理解常见IO系统调用的工作原理以及内核5种IO模型的工作原理,
+理解内核系统调用的阻塞原因，这几种IO模型做了什么优化，又有哪些缺陷？  
+
+参考：  
+[Anatomy of the Linux file system](https://www.ibm.com/developerworks/library/l-linux-filesystem/index.html)
+《Linux系统编程》系统IO章节，Java IO是包装的系统调用，要全面理解IO，理解系统调用的工作原理必不可少。  
+而且每个系统的IO系统调用不同，主要研究Linux。
+[Linux IO子系统和文件系统读写流程分析](https://blog.csdn.net/kidd_3/article/details/6909097)
+
+这里有几个个概念需要区分清楚：
+Java IO、系统调用、内核IO子系统、内核IO模型。
+
+Java IO是对系统调用的封装，系统调用是系统用户空间对内核空间的FileOperator的那一套函数指针的封装不仅针对存储设备还针对其他IO设备（这里IO设备指鼠标，键盘，显示器等外部设备），
+内核IO模型是对系统调用使用上拓展设计的一些优化模板。    
+
+从Android系统看  
+Linux设备驱动提供的都是FileOperator那套函数指针的针对设备的具体实现，然后HAL层（C++）对这些函数指针做了抽象封装然后接口看上去更易于理解，
+Android系统服务层对HAL接口则封装成服务根据应用需求及场景特异化出很多接口使接口更易用供应用使用。  
+对于Linux操作系统系统调用应该相当于Android的HAL层。  
 
