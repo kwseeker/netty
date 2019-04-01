@@ -115,10 +115,11 @@
     2）工作量和难度大  
     3）存在Bug  
 + Netty优势  
-    1）API简单
-    2）性能高
-    3）成熟稳定  
+    1）API简单  
+    2）性能高  
+    3）成熟稳定   
 
-#####    
+##### Netty逻辑架构
 
-  
+![Netty逻辑架构](https://upload-images.jianshu.io/upload_images/1500839-be1dab77a918ff38.jpg?imageMogr2/auto-orient/)
+
