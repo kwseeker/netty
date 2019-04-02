@@ -53,11 +53,11 @@ public class ThreadPoolExecutorDemo {
 
             //创建线程池
             executorService = new ThreadPoolExecutor(
-                    0,
+                    0,              //
                     Integer.MAX_VALUE,
                     60L,
                     TimeUnit.SECONDS,
-                    new SynchronousQueue<>(),
+                    new SynchronousQueue<>(),   //TransferStack
                     defaultThreadFactory);
 
             //创建任务 RunnableAdapter
@@ -89,6 +89,10 @@ public class ThreadPoolExecutorDemo {
             executorService.execute(new Task("Bob", 300));          //提交Runnable无返回任务
             executorService.submit(callableTask);     //提交Callable有返回任务,但是这个任务总是返回null
             executorService.submit(callableTask2);
+            //还可以使用FutureTask，同样不会阻塞
+            Integer rank2 = 0;
+            FutureTask<Integer> futureTask = new FutureTask<>(new Task("David", 400), rank2);
+            executorService.submit(futureTask);
             //测试3
             //invokeAll()是将返回写入到链表,也不失为对测试1的一种解决方法
             //executorService.invokeAll();            //批量提交callableTask,等待所有返回

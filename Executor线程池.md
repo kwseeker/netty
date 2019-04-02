@@ -81,4 +81,191 @@
 
 从一个简单的例子 ThreadPoolExecutorDemo.java（直接从Executors中copy出一个相对复杂的实例）开始，通过调试理解内部实现。
 
+##### 1）Executors的线程工厂
 
+    ```
+    private static final AtomicInteger poolNumber = new AtomicInteger(1);
+    private final ThreadGroup group;
+    private final AtomicInteger threadNumber = new AtomicInteger(1);
+    private final String namePrefix;
+    
+    DefaultThreadFactory() {
+        //获取安全管理器
+        SecurityManager s = System.getSecurityManager();
+        //获取main线程的线程组
+        group = (s != null) ? s.getThreadGroup() :
+                              Thread.currentThread().getThreadGroup();
+        //构建线程名称前缀
+        namePrefix = "pool-" +
+                      poolNumber.getAndIncrement() +
+                     "-thread-";
+    }
+        
+    public Thread newThread(Runnable r) {
+        Thread t = new Thread(group, r,
+                              namePrefix + threadNumber.getAndIncrement(),
+                              0);
+        if (t.isDaemon())
+            t.setDaemon(false);
+        if (t.getPriority() != Thread.NORM_PRIORITY)
+            t.setPriority(Thread.NORM_PRIORITY);
+        return t;
+    }
+    ```
+    
+    + SecurityManager
+    
+        SecurityManager是安全管理器，用于对代码中的敏感操作(系统权限修改，文件读写，网络连接，软件执行等等)做安全性检查，
+        具体参考：  
+        [Class SecurityManager](https://docs.oracle.com/javase/7/docs/api/java/lang/SecurityManager.html)  
+        [The Security Manager](https://docs.oracle.com/javase/tutorial/essential/environment/security.html)  
+        [The Java Security Manager: why and how?](https://blog.frankel.ch/java-security-manager/)  
+        TODO: 暂时略过这部分，注意这里的安全是广义的安全。
+    
+    + Thread
+    
+        这里有必要深入了解下 Thread 的结构与实现原理，现在仅从理论上了解下；因为Thread下面是JVM，JVM下面是OS内核；
+        往下挖，坑还深的的很。
+        
+        Thread JVM native 方法（之前做Android驱动开发的时候没少写这些，HAL->JNI->HIDL的流程估计和JVM差不多，
+        JVM包装的是底层OS的方法，而HAL->JNI->HIDL是包装的底层驱动的拓展接口，应该可以看做是JVM的拓展）（TODO）。
+        ```
+        private static native void registerNatives();   //注册native方法，注册的方法名不是随便起的，必须要与JVM的方法映射表中的方法名一致。
+        public static native Thread currentThread();
+        public static native void yield();
+        public static native void sleep(long millis) throws InterruptedException;
+        private native void start0();
+        private native boolean isInterrupted(boolean ClearInterrupted);
+        public final native boolean isAlive();
+        public native int countStackFrames();
+        private native static StackTraceElement[][] dumpThreads(Thread[] threads);
+        private native static Thread[] getThreads();
+        private native void setPriority0(int newPriority);
+        private native void stop0(Object o);
+        private native void suspend0();
+        private native void resume0();
+        private native void interrupt0();
+        private native void setNativeName(String name);
+        
+        //方法映射表
+        static JNINativeMethod methods[] = {
+            {"start0",           "()V",        (void *)&JVM_StartThread},
+            {"stop0",            "(" OBJ ")V", (void *)&JVM_StopThread},
+            {"isAlive",          "()Z",        (void *)&JVM_IsThreadAlive},
+            {"suspend0",         "()V",        (void *)&JVM_SuspendThread},
+            {"resume0",          "()V",        (void *)&JVM_ResumeThread},
+            {"setPriority0",     "(I)V",       (void *)&JVM_SetThreadPriority},
+            {"yield",            "()V",        (void *)&JVM_Yield},
+            {"sleep",            "(J)V",       (void *)&JVM_Sleep},
+            {"currentThread",    "()" THD,     (void *)&JVM_CurrentThread},
+            {"countStackFrames", "()I",        (void *)&JVM_CountStackFrames},
+            {"interrupt0",       "()V",        (void *)&JVM_Interrupt},
+            {"isInterrupted",    "(Z)Z",       (void *)&JVM_IsInterrupted},
+            {"holdsLock",        "(" OBJ ")Z", (void *)&JVM_HoldsLock},
+            {"getThreads",        "()[" THD,   (void *)&JVM_GetAllThreads},
+            {"dumpThreads",      "([" THD ")[[" STE, (void *)&JVM_DumpThreads},
+            {"setNativeName",    "(" STR ")V", (void *)&JVM_SetNativeThreadName},
+        };
+        ```
+        
+        
+        Java线程模型
+        
+        Java1.3及以后采用1：1线程模型（1个Java Thread对应一个OS内核线程）。  
+        ![Java线程模型](https://img-blog.csdn.net/20160715223638572?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQv/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/Center)
+        
+        Ps：Go语言采用M:N的线程模型，不过要注意 M和N 说的是 goroutine 和 用户线程(下图的M)的对应关系。
+        而对于单核CPU来说，所有 goroutine 都是执行在一个内核线程之上的。
+        ![Go协程模型](https://i6448038.github.io/img/csp/total.png)
+    
+        参考：  
+        [JVM原理与实现——Thread](https://juejin.im/entry/5960852cf265da6c2e0f8a31)
+ 
+##### 2）ThreadPoolExecutor线程池创建
+
+    ```
+    public ThreadPoolExecutor(int corePoolSize,             //线程池中维持的常备线程的数量
+                                  int maximumPoolSize,      //最大线程数量
+                                  long keepAliveTime,       //生存时间（线程中线程数量超过corePoolSize的话，线程空闲等待时间，超过这个时间没有使用线程会被回收）
+                                  TimeUnit unit,            //生存时间的时间单位
+                                  BlockingQueue<Runnable> workQueue,    //工作队列(所有线程公用)
+                                  ThreadFactory threadFactory,          //构建工作者线程的线程工厂
+                                  RejectedExecutionHandler handler) {   //线程工作队列堆满或线程数最大导致阻塞的处理回调，AbortPolicy();
+        //一些参数校验
+        
+        this.acc = System.getSecurityManager() == null ?
+                null :
+                AccessController.getContext();
+        this.corePoolSize = corePoolSize;
+        this.maximumPoolSize = maximumPoolSize;
+        this.workQueue = workQueue;
+        this.keepAliveTime = unit.toNanos(keepAliveTime);
+        this.threadFactory = threadFactory;
+        this.handler = handler;
+    }
+    ```
+
+##### 3）任务提交与执行
+
+```
+public void execute(Runnable command) {
+    if (command == null)
+        throw new NullPointerException();
+    int c = ctl.get();                      //线程池控制状态（包括工作线程{创建还未停止的线程}数量及运行状态{运行中/关闭等等}）
+                                            //使用一个32位的int，维护线程池线程数量（最高支持2^29-1个线程）和 线程池工作状态
+                                            //虽然前面说限制最大数量为Integer.MAX_VALUE超过了2^29-1，但是现在现实中根本不可能达到2^29-1这么高的并发线程数（1个线程基本就是2M内存啊）
+    if (workerCountOf(c) < corePoolSize) {  //workerCountOf()取 ctl的低29位
+        if (addWorker(command, true))
+            return;
+        c = ctl.get();
+    }
+    if (isRunning(c) && workQueue.offer(command)) {
+        int recheck = ctl.get();
+        if (! isRunning(recheck) && remove(command))
+            reject(command);
+        else if (workerCountOf(recheck) == 0)
+            addWorker(null, false);
+    }
+    else if (!addWorker(command, false))
+        reject(command);
+}
+```
+任务提交之后执行了下面3个步骤：
+
+1）如果运行的线程数量小于常备线程数量则启动一个新的线程, 并将目标任务（Runnable的实现类）放到工作队列; 
+    否则转2； 
+2）如果运行的线程数量不小于常备线程数量则判断工作队列是否已满；
+    未满加入工作队列后，则重新获取线程池状态，线程池
+    已满，则转3
+3）如果无法加入当前已有的线程的工作队列，则创建新的线程并加入到其工作队列；如果还是失败则执行 RejectedExecutionHandler 处理。
+
++ ctl 线程池控制码
+
+    高3位作为状态标识，后29位作为线程数量计数。
+    ```
+    CAPACITY(0X1fffffff)
+    
+    RUNNING(111): （线程池默认状态）Accept new tasks and process queued tasks  
+    SHUTDOWN(000): Don't accept new tasks, but process queued tasks  
+    STOP(001):     Don't accept new tasks, don't process queued tasks,
+              and interrupt in-progress tasks   
+    TIDYING(010):  All tasks have terminated, workerCount is zero,
+              the thread transitioning to state TIDYING
+              will run the terminated() hook method  
+    TERMINATED(011): terminated() has completed  
+    
+    //获取线程池工作状态
+    private static int runStateOf(int c)     { return c & ~CAPACITY; }
+    //获取线程池线程数量
+    private static int workerCountOf(int c)  { return c & CAPACITY; }
+    //获取线程池当前的控制码ctl
+    private static int ctlOf(int rs, int wc) { return rs | wc; }
+    ```
+   
++ SynchronousQueue 同步队列
+
+    
+
+     
+    
+    
