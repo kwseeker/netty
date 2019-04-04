@@ -257,9 +257,23 @@ public void execute(Runnable command) {
 1）如果运行的线程数量小于常备线程数量则启动一个新的线程, 并将目标任务（Runnable的实现类）放到工作队列; 
     否则转2； 
 2）如果运行的线程数量不小于常备线程数量则判断工作队列是否已满；
-    未满加入工作队列后，则重新获取线程池状态，线程池
+    未满则加入工作队列，然后重新获取线程池状态，线程池若非RUNNING状态要从队列移除此任务，若处于RUNNING状态但是工作者线程数为0，则新建非core类型工作者线程。
     已满，则转3
-3）如果无法加入当前已有的线程的工作队列，则创建新的线程并加入到其工作队列；如果还是失败则执行 RejectedExecutionHandler 处理。
+3）如果无法加入当前已有的线程的工作队列，则创建新的线程处理这个任务；如果还是失败则执行 RejectedExecutionHandler 处理。
+
+!!! 注意：
+1）任务并不一定会加入到工作队列，具体参考Worker的实现，任务作为线程的第一个任务时总是直接处理的。  
+2）（纠正一个错误理解）`线程池运行的真正流程`：
+    公司成立一个新的软件项目组，刚开始计划招 M 个人（初始0人）, 所有开发人员使用同一个任务表（任务表容量C）；
+    项目组开始运行，有一个开发任务，然后招了一个程序员处理这个任务（并不加入任务表）；然后又来一个任务，
+    继续招人处理第二个任务（等到招够了M个人同时也处理了M个任务）；这是又来了个任务项目组决定不招人了，把任务放到任务列表最后，
+    说大家谁手头的工作做完了就从这个任务表里面取任务做（可以从头取，也可以从后面取，看项目组规定）；
+    某一天又来了任务却发现任务表满了放不下了，然后项目组决定临时招个程序员处理这个任务，然后这个程序员任务做完后就跑去任务列表拿任务。
+    慢慢的这样下去，突然某天有个程序员去任务表拿任务却发现任务表空了，然后项目组看了一下当前人数 N > M,然后看了下已经闲了keepAliveTime 天还多, 
+    决定既然你没事干了，你就不要留在这个项目组了，然后把这个程序员剔出了项目组。
+    
+TODO：源码里面还有好多细节没有研究清楚，比如加锁控制，好多CAS操作，还有非常备线程(core线程)的释放流程细节，线程池构造传参不同后台执行逻辑的差别没有看透彻，
+不过已经再这部分花了太多时间，而且与主要目标关系不大，所有后面有时间继续研究。
 
 + ctl 线程池控制码
 
@@ -297,6 +311,22 @@ public void execute(Runnable command) {
 
 添加工作者线程  
 ```
+//工作者线程内存结构
+private final class Worker
+        extends AbstractQueuedSynchronizer
+        implements Runnable
+{
+    private static final long serialVersionUID = 6138294804551838833L;
+    /** Thread this worker is running in.  Null if factory fails. */
+    final Thread thread;
+    /** Initial task to run.  Possibly null. */
+    Runnable firstTask;
+    /** Per-thread task counter */
+    volatile long completedTasks;
+    
+    //...
+}
+
 private boolean addWorker(Runnable firstTask, boolean core) {
     retry:
     for (;;) {
@@ -421,4 +451,13 @@ final void runWorker(Worker w) {
 }
 ```  
     
-    
+##### 3）线程池中线程的释放 
+
+核心方法是 tryTerminate(), Option+Command+H 查看其调用位置可以看到释放的时机有以下几个：
+
+![tryTerminate调用入口](picture/executor-release-thread.png)
+
+a) 因为某些原因要从工作队列移除任务或批量移除任务时;  
+b）关闭线程池时;  
+c) 处理非常备线程(非core线程)退出时（非常备线程处理队列放不下的任务且处理完就退出）;  
+d) 添加工作者线程失败时;  

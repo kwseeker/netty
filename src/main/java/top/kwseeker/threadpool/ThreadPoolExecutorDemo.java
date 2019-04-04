@@ -26,13 +26,13 @@ public class ThreadPoolExecutorDemo {
 
         @Override
         public String toString() {
-            return "{name:" + this.name + ",costTime:" + costTime + ",order:" + order;
+            return "{name:" + this.name + ",costTime:" + costTime + ",order:" + order + "}";
         }
 
         public void run() {
             try {
-                System.out.println("模拟的任务 begin");
-                Thread.sleep(this.costTime);
+                System.out.println("模拟的任务 begin, " + Thread.currentThread());
+                Thread.sleep(this.costTime*10);
                 order++;
                 nameMap.put(name, order);
                 System.out.println("模拟的任务 end, result: " + this.toString());
@@ -52,13 +52,11 @@ public class ThreadPoolExecutorDemo {
             //ThreadFactory privilegedThreadFactory = Executors.privilegedThreadFactory();
 
             //创建线程池
-            executorService = new ThreadPoolExecutor(
-                    0,              //
-                    Integer.MAX_VALUE,
-                    60L,
-                    TimeUnit.SECONDS,
-                    new SynchronousQueue<>(),   //TransferStack
-                    defaultThreadFactory);
+            //选用的工作队列的类型对线程池内部运行逻辑影响很大
+            executorService = new ThreadPoolExecutor(2, Integer.MAX_VALUE, 60L, TimeUnit.SECONDS,
+                    new SynchronousQueue<>(), defaultThreadFactory);      //newCachedThreadPool, 使用SynchronousQueue默认构造的实例时插入队列时总是失败的，根据线程池工作流程，总是会新建线程处理新任务
+            //executorService = new ThreadPoolExecutor(2, 16,60L, TimeUnit.SECONDS,
+            //        new LinkedBlockingQueue<>(), defaultThreadFactory);
 
             //创建任务 RunnableAdapter
             Callable<Object> callableTask = Executors.callable(new Task("Arvin", 500));
