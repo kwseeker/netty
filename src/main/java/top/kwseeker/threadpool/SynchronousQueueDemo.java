@@ -24,7 +24,8 @@ public class SynchronousQueueDemo {
     static class Task implements Runnable {
         @Override
         public void run() {
-            System.out.println(Thread.currentThread().getName() + " run at " + new Date().toString());
+            System.out.println(Thread.currentThread().getName() + " run at " + System.nanoTime() + "====================>");
+            System.out.println(Thread.currentThread().getName() + " date: " + new Date().toString());  //耗时几十毫秒
         }
     }
 
@@ -116,31 +117,69 @@ public class SynchronousQueueDemo {
             /**==========================================
              * SynchronousQueue newCachedThreadPool
              *==========================================*/
+//            System.out.println(System.nanoTime());
+//            String dateTime = new Date().toString();        //这个竟然耗时20-30ms左右
+//            System.out.println(System.nanoTime());
+//            long mills = System.currentTimeMillis();        //(我的电脑)测试大概耗时50us，currentTimeMillis() 起始时间是基于 1970.1.1 0:00:00 这个确定的时间的
+//            System.out.println(System.nanoTime());
+//            System.out.println(System.nanoTime());
+//            long nanos = System.nanoTime();                 //测试相对比currentTimeMillis()更精确几乎和没有执行这个语句一样， nanoTime() 基于cpu核心的启动时间开始计算的
+//            System.out.println(System.nanoTime());
+//            System.out.println(System.nanoTime());
+
             ExecutorService es = Executors.newCachedThreadPool();
-            for (int i = 0; i < 20; i++) {
-                es.submit(new Task());
+            try {
+                for (int i = 0; i < 20; i++) {
+                    Thread.sleep(2, 300000);      //线程的创建是很耗时的，大概几ms时间（和机器处理能力有关），但是将
+                    es.submit(new Task());
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
-            /* 因为添加队列总是失败，总是创建新的线程处理任务，所以打印的线程号没有重样的
-            pool-1-thread-16 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-8 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-17 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-18 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-4 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-9 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-5 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-15 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-14 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-19 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-6 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-10 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-20 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-2 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-7 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-11 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-1 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-13 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-12 run at Thu Apr 04 19:25:19 CST 2019
-            pool-1-thread-3 run at Thu Apr 04 19:25:19 CST 2019
+            /* 打印的结果为什么是这个样子？因为SynchronousQueue以及线程池实现要求必须有线程在等待队列数据的时候才能成功插入，
+            看newCacheThreadPool的实现得知，常备线程数为0，然后尝试将工作插入SynchronousQueue工作队列，但是没有消费者正在等着取工作的时候是无法插入的，
+            所以前面建了一批线程，然后这批线程有线程执行完工作阻塞地等SynchronousQueue工作队列中的工作的时候(最多等60s)，这时再插入任务，就可以成功插入了，然后就由此
+            线程处理。TODO：还有个疑问为何总是被7号线程抢到？
+            pool-1-thread-1 run at 328615778007744====================>
+            pool-1-thread-2 run at 328615780326893====================>
+            pool-1-thread-3 run at 328615782524528====================>
+            pool-1-thread-4 run at 328615785168219====================>
+            pool-1-thread-5 run at 328615787513055====================>
+            pool-1-thread-6 run at 328615789891893====================>
+            pool-1-thread-7 run at 328615792177691====================>
+            pool-1-thread-8 run at 328615794798035====================>
+            pool-1-thread-9 run at 328615796973900====================>
+            pool-1-thread-1 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-8 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-4 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-5 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-9 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-10 run at 328615799616368====================>
+            pool-1-thread-2 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-3 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-6 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-10 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615802074652====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615804587195====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615806635397====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615809145682====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615811459667====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615813985923====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615816548596====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615818817355====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615821112392====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
+            pool-1-thread-7 run at 328615823654118====================>
+            pool-1-thread-7 date: Sun Apr 07 13:29:05 CST 2019
             */
 
             /**==========================================
