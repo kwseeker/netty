@@ -1,0 +1,3 @@
+#spi接口 DemoService的具体实现
+top.kwseeker.spidemo.impl.ChineseDemoServiceImpl
+top.kwseeker.spidemo.impl.EnglishDemoServiceImpl
