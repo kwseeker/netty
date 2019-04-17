@@ -19,20 +19,30 @@
         NioEventLoopGroup可以理解为一个线程池，内部维护了一组线程，每个线程负责处理多个Channel上的事件，
         而一个Channel只对应于一个线程。
         
+        初始化过程经历了一下几个阶段：
+        1）如果不存在executor则创建，此线程池会为每个任务创建一个FastThreadLocalThread线程(采用FastThreadLocal实现线程本地变量)；
+        2）
+        
         ```
         //默认传参 
         //16,                                           CPU核心数*2
         //null,                                         
         //DefaultEventExecutorChooserFactory.INSTANCE, 
-        //SelectorProvider.provider(), 
+        //SelectorProvider.provider(),                  使用系统级默认的Selector provider，
         //DefaultSelectStrategyFactory.INSTANCE, 
         //RejectedExecutionHandlers.reject()
         protected MultithreadEventExecutorGroup(int nThreads, Executor executor,
                                                 EventExecutorChooserFactory chooserFactory, Object... args) {
+            //1)
             if (executor == null) {
-                executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());    //
+                //使用默认线程工厂的Executor, 线程工厂规定了线程的创建的规则（池名称，是否Daemon，优先级）
+                //线程任务使用了Runnable的一个包装类FastThreadLocalRunnable，线程类型为FastThreadLocal，这个包装类对任务做了两件事情：
+                // 1）空指针检查;
+                // 2) 任务完成后对任务所在线程做了ThreadLocal变量的自动释放，解决ThreadLocal使用不当导致内存泄漏问题。
+                executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());    
             }
     
+            //2)
             children = new EventExecutor[nThreads];
     
             for (int i = 0; i < nThreads; i ++) {
@@ -91,56 +101,84 @@
             readonlyChildren = Collections.unmodifiableSet(childrenSet);
         }
         ```
-    
-    - SelectorProvider
-    
-        使用了Java SPI机制。
-    
-        Java SPI(Service Provider Interface), 是JDK内置的一种服务提供发现机制；是旨在由第三方实施或扩展的API。它可用于启用框架扩展和可替换组件。
-        Java的SPI机制可以为某个接口寻找服务实现。
-        
-        一个服务(Service)通常指的是已知的接口或者抽象类，服务提供方就是对这个接口或者抽象类的实现，
-        然后按照SPI 标准存放到资源路径META-INF/services目录下，文件的命名为该服务接口的全限定名。   
-        
-        维基百科提供了几个实例：[Service Provider Interface](https://en.wikipedia.org/wiki/Service_provider_interface)
-        
-        In the Java Runtime Environment, SPIs are used in:   
-        Java Database Connectivity  
-        Java Cryptography Extension  
-        Java Naming and Directory Interface  
-        Java API for XML Processing  
-        Java Business Integration  
-        Java Sound  
-        Java Image I/O  
-        Java File Systems  
-        
-        
-    - ThreadPerTaskExecutor
-        
-        使用的线程池工厂
-        ```
-        //传参（nioEventLoopGroup, false, 10, java.lang.ThreadGroup[name=main, maxpri=10]）
-        public DefaultThreadFactory(String poolName, boolean daemon, int priority, ThreadGroup threadGroup) {
-            if (poolName == null) {
-                throw new NullPointerException("poolName");
+
+        * ThreadPerTaskExecutor
+            
+            使用指定的线程工厂为每一个任务创建一个FastThreadLocalThread线程。
+            ```
+            public void execute(Runnable command) {
+                threadFactory.newThread(command).start();
             }
-            if (priority < Thread.MIN_PRIORITY || priority > Thread.MAX_PRIORITY) {
-                throw new IllegalArgumentException(
-                        "priority: " + priority + " (expected: Thread.MIN_PRIORITY <= priority <= Thread.MAX_PRIORITY)");
+            ```
+                
+            使用的线程池工厂
+            ```
+            //传参（nioEventLoopGroup, false, 10, java.lang.ThreadGroup[name=main, maxpri=10]）
+            public DefaultThreadFactory(String poolName, boolean daemon, int priority, ThreadGroup threadGroup) {
+                if (poolName == null) {
+                    throw new NullPointerException("poolName");
+                }
+                if (priority < Thread.MIN_PRIORITY || priority > Thread.MAX_PRIORITY) {
+                    throw new IllegalArgumentException(
+                            "priority: " + priority + " (expected: Thread.MIN_PRIORITY <= priority <= Thread.MAX_PRIORITY)");
+                }
+        
+                prefix = poolName + '-' + poolId.incrementAndGet() + '-';
+                this.daemon = daemon;
+                this.priority = priority;
+                this.threadGroup = threadGroup;
             }
-    
-            prefix = poolName + '-' + poolId.incrementAndGet() + '-';
-            this.daemon = daemon;
-            this.priority = priority;
-            this.threadGroup = threadGroup;
-        }
-        ```
+            
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = newThread(FastThreadLocalRunnable.wrap(r), prefix + nextId.incrementAndGet());
+                try {
+                    if (t.isDaemon() != daemon) {
+                        t.setDaemon(daemon);
+                    }
         
+                    if (t.getPriority() != priority) {
+                        t.setPriority(priority);
+                    }
+                } catch (Exception ignored) {
+                    // Doesn't matter even if failed to set.
+                }
+                return t;
+            }
+            ```
+         
+        * FastThreadLocal 与 FastThreadLocalRunnable、FastThreadLocalThread（TODO：深入研究）  
         
+            Java ThreadLocal 本身如果使用不当容易造成内存泄漏，而使用 Netty FastThreadLocal 工具类则可以解决这个隐患，实现很通用，
+            可以借鉴用于日后开发中。
+            
+            TODO：实现原理先放一放（不然Netty源码不知要看到猴年马月了），其实是在ThreadLocal的设计思想上改进的。
+              
+        * SelectorProvider  
+        
+            使用了Java SPI机制。
+        
+            Java SPI(Service Provider Interface), 是JDK内置的一种服务提供发现机制；是旨在由第三方实施或扩展的API。它可用于启用框架扩展和可替换组件。
+            Java的SPI机制可以为某个接口寻找服务实现。
+            
+            一个服务(Service)通常指的是已知的接口或者抽象类，服务提供方就是对这个接口或者抽象类的实现，
+            然后按照SPI 标准存放到资源路径META-INF/services目录下，文件的命名为该服务接口的全限定名。   
+            
+            维基百科提供了几个实例：[Service Provider Interface](https://en.wikipedia.org/wiki/Service_provider_interface)
+            
+            In the Java Runtime Environment, SPIs are used in:   
+            Java Database Connectivity  
+            Java Cryptography Extension  
+            Java Naming and Directory Interface  
+            Java API for XML Processing  
+            Java Business Integration  
+            Java Sound  
+            Java Image I/O  
+            Java File Systems     
+        
+        * EventExecutor
     
-    - EventExecutor
-    
-        是一个特殊的EventExecutorGroup, 有一些方便的方法可以查看一个线程是否在一个一个 event loop 中被执行。
+            是一个特殊的EventExecutorGroup, 有一些方便的方法可以查看一个线程是否在一个一个 event loop 中被执行。
     
         * EventExecutorGroup
         
