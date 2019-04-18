@@ -71,6 +71,18 @@
   
   新的FileChannel类提供了一个名为map()的方法，该方法在一个打开的文件和一个特殊类型的ByteBuffer之间建立一个虚拟内存映射；
   
-  
-
 + Selector 选择器  
+
+  TODO：结合JVM深入研究实现。
+
+  Mac-OS 默认实现是 KQueueSelectorImpl。
+  ```
+  KQueueSelectorImpl
+    -> SelectorImpl
+      -> AbstractSelector
+        -> Selector
+          -> Closeable
+            -> AutoCloseable
+  ```
+  依赖系统的非阻塞Pipe实现。
+  
