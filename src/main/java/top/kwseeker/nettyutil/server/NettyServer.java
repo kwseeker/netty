@@ -30,6 +30,7 @@ public class NettyServer {
             ServerBootstrap serverBootstrap = new ServerBootstrap();         //TODO：子线程池的属性：childOptions, childAttrs, config, childGroup, childHandler 父线程池的属性：group，channelFactory，localAddress，options，attrs，handler
             serverBootstrap.group(parentGroup, childGroup);                  //针对childGroup和group的赋值操作
             serverBootstrap.channel(NioServerSocketChannel.class);           //针对channelFactory的赋值操作
+            serverBootstrap.handler(new ServerHandler());
             //启动参数配置
             serverBootstrap.option(ChannelOption.SO_BACKLOG, 128)       //针对options的赋值操作，SO_BACKLOG用于设置存储排队请求的队列的长度
                     .option(ChannelOption.SO_KEEPALIVE, true)           //针对options的赋值操作，SO_KEEPALIVE设置保持长连接

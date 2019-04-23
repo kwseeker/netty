@@ -152,6 +152,249 @@ SimpleChannelInboundHandler
 
 ### 5 ByteBuf
 
+io.netty.buffer.ByteBuf
+
+用于将数据从底层IO读取到ByteBuf传给应用程序,应用程序处理完后再封装成ByteBuf写回给底层IO。
+ByteBuf是数据在应用程序和底层IO的中转站。
+
+研究ByteBuf的分配和释放的原理。
+
+#### ByteBuf的结构
+
+内部包含三个指针读指针(readerIndex),写指针(writerIndex),容量指针(capacity,即容器的容量,一般会设置的非常大)  
+0 <= readerIndex <= writerIndex <= capacity
+
+Question：如果ByteBuf写满了继续写会怎么样？
+
+为了防止这种情况出现要及时 discard 无效数据（0 - readerIndex 间的数据）或 clear 缓冲区（0 - writerIndex）。
+```
+AFTER discardReadBytes()
+
+      +------------------+--------------------------------------+
+      |  readable bytes  |    writable bytes (got more space)   |
+      +------------------+--------------------------------------+
+      |                  |                                      |
+ readerIndex (0) <= writerIndex (decreased)        <=        capacity
+
+AFTER clear()
+
+      +---------------------------------------------------------+
+      |             writable bytes (got more space)             |
+      +---------------------------------------------------------+
+      |                                                         |
+      0 = readerIndex = writerIndex            <=            capacity
+```
+
+##### ByteBuf常用操作
+
+查询可读可写的长度；  
+读、写、设置；   
+丢弃数据、清空；  
+标注与恢复等。  
+
+##### Netty的内存分类
+
++ Pooled / Unpooled
+    从内存缓冲池中获取 或 直接在堆或Direct内存中创建。
+    
++ Unsafe / 非Unsafe（框架自动选择，如果能取到Unsafe对象就创建Unsafe类型的ByteBuf）  
+    JDK中Unsafe对象只可以取到内存指针地址并进行指针操作的对象；Java认为直接操作指针地址是不安全的。  
+    
+    这里Unsafe ByteBuf 指可以直接拿到内存地址进行操作。
+    
++ Heap / Direct（堆外内存）  
+
+    Heap ByteBuf （实现基于数组）直接在堆内存上分配，受JVM控制，可由GC自动释放；  
+    Direct 调用JDK的API进行内存分配，分配内存是不受JVM控制的，不会参与GC过程（为此Netty为Direct ByteBuf
+    引入了应用计数机制，管理Direct内存回收）。  
+
+    Question：Direct ByteBuf 相对于 Heap ByteBuf有什么优势？
+    使用Direct ByteBuf 避免了在Java堆和系统内存中来回复制数据。
+    至于为何Direct ByteBuf减少了内存拷贝，对于Socket通信是通过IO与其他设备通信的，而IO与Java堆内存无法直接交互，
+    而必须要在内核空间开辟一段内存作为Java堆内存的中转，再与IO交互，而Direct ByteBuf通过Native方法
+    直接在系统内存中分配空间，可以直接与IO交互。
+  
+Question：  
+1）如何避免多线程内存分配竞争 
+
+2）不同大小的内存如何分配
+
+3）ioBuffer 和 compositeByteBuf   
+    compositeByteBuf：多个ByteBuf提供一个聚合视图。在这里你可以根据需要添加或者删除ByteBuf实例。
+    
+#### ByteBuf内存分配
+
++ ByteBufAllocator（接口）按需分配
+    
+    AbstractByteBufAllocator 实现了绝大部分ByteBufAllocator方法
+    
+    PooledByteBufAllocator 从已经分配好的内存池中取ByteBuf  
+    UnpooledByteBufAllocator 直接调用API从Java堆或系统内存中分配ByteBuf  
+    这两个类主要实现了newHeapBuffer 和 newDirectBuffer方法。
+    
+    ```
+    //PooledByteBufAllocator
+    
+    private final PoolThreadLocalCache threadCache;
+    
+    public PooledByteBufAllocator(boolean preferDirect, int nHeapArena, int nDirectArena, int pageSize, int maxOrder,
+                                      int tinyCacheSize, int smallCacheSize, int normalCacheSize,
+                                      boolean useCacheForAllThreads, int directMemoryCacheAlignment) {
+        super(preferDirect);
+        threadCache = new PoolThreadLocalCache(useCacheForAllThreads);
+        this.tinyCacheSize = tinyCacheSize;
+        this.smallCacheSize = smallCacheSize;
+        this.normalCacheSize = normalCacheSize;
+        chunkSize = validateAndCalculateChunkSize(pageSize, maxOrder);
+
+        //...
+        
+        int pageShifts = validateAndCalculatePageShifts(pageSize);
+
+        if (nHeapArena > 0) {
+            heapArenas = newArenaArray(nHeapArena);
+            List<PoolArenaMetric> metrics = new ArrayList<PoolArenaMetric>(heapArenas.length);
+            for (int i = 0; i < heapArenas.length; i ++) {
+                PoolArena.HeapArena arena = new PoolArena.HeapArena(this,
+                        pageSize, maxOrder, pageShifts, chunkSize,
+                        directMemoryCacheAlignment);
+                heapArenas[i] = arena;
+                metrics.add(arena);
+            }
+            heapArenaMetrics = Collections.unmodifiableList(metrics);
+        } else {
+            heapArenas = null;
+            heapArenaMetrics = Collections.emptyList();
+        }
+
+        if (nDirectArena > 0) {
+            directArenas = newArenaArray(nDirectArena);
+            List<PoolArenaMetric> metrics = new ArrayList<PoolArenaMetric>(directArenas.length);
+            for (int i = 0; i < directArenas.length; i ++) {
+                PoolArena.DirectArena arena = new PoolArena.DirectArena(
+                        this, pageSize, maxOrder, pageShifts, chunkSize, directMemoryCacheAlignment);
+                directArenas[i] = arena;
+                metrics.add(arena);
+            }
+            directArenaMetrics = Collections.unmodifiableList(metrics);
+        } else {
+            directArenas = null;
+            directArenaMetrics = Collections.emptyList();
+        }
+        metric = new PooledByteBufAllocatorMetric(this);
+    }
+    
+    protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
+        //threadCache是PoolThreadLocalCache类型的，在PooledByteBufAllocator初始化的时候创建
+        PoolThreadCache cache = threadCache.get();
+        PoolArena<byte[]> heapArena = cache.heapArena;
+
+        final ByteBuf buf;
+        if (heapArena != null) {
+            buf = heapArena.allocate(cache, initialCapacity, maxCapacity);
+        } else {
+            buf = PlatformDependent.hasUnsafe() ?
+                    new UnpooledUnsafeHeapByteBuf(this, initialCapacity, maxCapacity) :
+                    new UnpooledHeapByteBuf(this, initialCapacity, maxCapacity);
+        }
+        return toLeakAwareBuffer(buf);
+    }
+    
+    protected ByteBuf newDirectBuffer(int initialCapacity, int maxCapacity) {
+        PoolThreadCache cache = threadCache.get();
+        PoolArena<ByteBuffer> directArena = cache.directArena;
+
+        final ByteBuf buf;
+        if (directArena != null) {
+            buf = directArena.allocate(cache, initialCapacity, maxCapacity);
+        } else {
+            buf = PlatformDependent.hasUnsafe() ?
+                    UnsafeByteBufUtil.newUnsafeDirectByteBuf(this, initialCapacity, maxCapacity) :
+                    new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
+        }
+
+        return toLeakAwareBuffer(buf);
+    }
+    ```
+    
+    PoolThreadLocalCache extends FastThreadLocal<PoolThreadCache>
+    
+    PoolThreadCache  
+    是池化内存的真正的结构，内部包含两个池化数据结构，分别表示从堆内存空间分配的空间和操作系统本地内存分配的空间。 
+    ```
+    final PoolArena<byte[]> heapArena;
+    final PoolArena<ByteBuffer> directArena;
+    ```
+    
+    由此可见预先分配好的池化内存的引用保存在线程的本地变量，threadCache在PooledByteBufAllocator被创建的时候声明；
+    在首次调用get()方法的时候被分配，具体参考initialValue()被调用的层级关系。  
+    引用关系：  
+    （PoolThreadLocalCache）threadLocal -> (PoolThreadCache) cache -> （PoolArena）heapArena / directArena
+    
++ PoolThreadCache(这个对象应该理解为是对物理内存的对象映射，MemoryRegionCache则映射物理内存的各个存储区间)
+    
+    应用程序是以trunk（16Mb）为单位向操作系统进行内存申请的，Netty又将这一trunk空间分为三种不同大小规格的空间
+    ![](picture/netty-StorageSize.png)
+    
+    PoolThreadCache 内存缓冲池，PooledByteBufAllocator分配ByteBuf时会通过PoolThreadCache分配池化的内存区间。
+    ```
+    final PoolArena<byte[]> heapArena;
+    final PoolArena<ByteBuffer> directArena;
+
+    // Hold the caches for the different size classes, which are tiny, small and normal.
+    private final MemoryRegionCache<byte[]>[] tinySubPageHeapCaches;
+    private final MemoryRegionCache<byte[]>[] smallSubPageHeapCaches;
+    private final MemoryRegionCache<ByteBuffer>[] tinySubPageDirectCaches;
+    private final MemoryRegionCache<ByteBuffer>[] smallSubPageDirectCaches;
+    private final MemoryRegionCache<byte[]>[] normalHeapCaches;
+    private final MemoryRegionCache<ByteBuffer>[] normalDirectCaches;
+
+    // Used for bitshifting when calculate the index of normal caches later
+    private final int numShiftsNormalDirect;
+    private final int numShiftsNormalHeap;
+    private final int freeSweepAllocationThreshold;
+    private final AtomicBoolean freed = new AtomicBoolean();
+
+    private int allocations;
+    ```
+    
+    MemoryRegionCache内存结构
+    ```
+    private final int size;
+    private final Queue<Entry<T>> queue;
+    private final SizeClass sizeClass;
+    private int allocations;
+    
+    static final class Entry<T> {   //通过chunk和handle可以唯一确定一段连续的内存区间
+        final Handle<Entry<?>> recyclerHandle;
+        PoolChunk<T> chunk;
+        long handle = -1;
+        // ...
+    }
+    ```
+    ![](picture/netty-MemoryRegionCache2.png)  
+    queue中存储的即为下图所示的内存节点  
+    ![](picture/netty-MemoryRegionCache.png)  
+    ![](picture/netty-StorageSize2.png)  
+    arena是trunk的集合，trunk是page的集合，page是subpage的集合。
+    Netty通过传参判断以哪种粒度进行分配内存，如果要分配大于page（默认8K）大小的内存，则以page为单位进行分配内存，
+    大于32K的内存是不会被缓存的。    
+    
+    通过FastTreadLocal机制每个线程会维护一份PoolThreadCache的缓存对象（两大类三小类MemoryRegionCache数组对象）
+    分配内存的时候会根据参数通过这个对象从缓存池中获取适合内存缓存对象，第一次操作肯定为空，则会创建一个对象，并映射到
+    某段物理内存，线程使用这个内存完毕后，这个映射物理内存的对象并不会被GC回收而是放到缓存池中；后面线程中如果需要重新分配相同大小的内存，
+    就根据传参从缓存池中重新取出这个内存对象直接复用。
+
+    内存对象使用完后recycle到对象池，而不是被GC回收，避免了内存对象被重复创建和销毁的耗时流程。
+
+    Question：  
+    1）通过trunk和handle是如何命中一块物理内存的？  
+    2）假如有1000个线程通过PoolThreadCache分配内存，每个线程都会分配16M的内存空间么？  
+
++ ByteBufUtil
+
++ Unpooled 缓冲区
+
 #### ByteBuf API
 
 + ByteBuf
@@ -161,33 +404,9 @@ SimpleChannelInboundHandler
 
 + ByteBufHolder
 
-    实现了缓冲池等高级特性。
-
-#### ByteBuf的使用模式
-
-+ 堆缓冲区
-
-    依赖JVM的堆空间实现，将数据存储在数组中。可以快速创建和释放，提供数组的直接快速访问的方法。
-    缺点是应用读写数据每次都要先将数据从堆缓冲区复制到直接缓冲区。
-
-+ 直接缓冲区
-
-    Direct Buffer的优点是：在使用Socket传递数据时性能很好，由于数据直接在内存中，不存在从JVM拷贝数据到直接缓冲区的过程，性能好。
-    缺点是：因为Direct Buffer是直接在内存中，所以分配内存空间和释放内存比堆缓冲区更复杂和慢。
-
-+ 复合缓冲区
-
-    多个ByteBuf提供一个聚合视图。在这里你可以根据需要添加或者删除ByteBuf实例。
+    实现了缓冲池等高级特性。    
     
 #### 字节级操作
-
-#### ByteBuf内存分配
-
-+ ByteBufAllocator 按需分配
-
-+ Unpooled 缓冲区
-
-+ ByteBufUtil
 
 #### 引用计数
     
@@ -291,6 +510,12 @@ NioEventLoop线程中维护了任务队列？NioEventLoop对应的worker线程�
 ### 8 引导
 
 ### 9 单元测试
+
+#### EmbeddedChannel
+
+是专门为改进ChannelHandler单元测试而提供的。
+通过EmbeddedChannel可以往ChannelPipeline中写入数据，通过链式的ChannelHandler处理之后，可以读取数据；
+然后判断处理与预期是否相同。
 
 ## 第二部分 编解码器
 
