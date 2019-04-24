@@ -154,13 +154,56 @@
             }
             ```
          
-        * FastThreadLocal 与 FastThreadLocalRunnable、FastThreadLocalThread（TODO：深入研究）  
+        * FastThreadLocal 与 FastThreadLocalRunnable、FastThreadLocalThread  
         
-            Java ThreadLocal 本身如果使用不当容易造成内存泄漏，而使用 Netty FastThreadLocal 工具类则可以解决这个隐患，实现很通用，
-            可以借鉴用于日后开发中。
+            FastThreadLocal实现原理  
+            对于一个线程而言，这个线程每一个FastThreadLocal都有一个唯一的index，通过这个索引可以获取FastThreadLocal所对应的值。
+            在这个线程中每新建一个FastThreadLocal，其index在UnpaddedInternalThreadLocalMap nextIndex 原来基础上递增加1。
             
-            TODO：实现原理先放一放（不然Netty源码不知要看到猴年马月了），其实是在ThreadLocal的设计思想上改进的。
-              
+            首先看一下FastThreadLocal的内存结构
+            ```
+            //存储待释放的FastThreadLocal变量Set集合的索引，和值都是放在Object数组indexedVariables中的
+            private static final int variablesToRemoveIndex = InternalThreadLocalMap.nextVariableIndex();
+            //FastThreadLocal键对应值的索引
+            private final int index;
+            ```
+            
+            相关class:   
+            InternalThreadLocalMap  作为FastThreadLocal.set()值得容器使用，为何叫Internal估计是因为它被保存在ThreadLocalMap中。   
+            UnpaddedInternalThreadLocalMap 是InternalThreadLocalMap的父类。  
+            
+            Thread（普通线程）：  
+            ```
+            ThreadLocal<InternalThreadLocalMap> slowThreadLocalMap = UnpaddedInternalThreadLocalMap.slowThreadLocalMap;
+            //这个和在业务类里面定义 static final ThreadLocal<InternalThreadLocalMap> slowThreadLocalMap = new ThreadLocal<InternalThreadLocalMap>(); 是一样的
+            ```
+            对于普通线程，就是新建一个InternalThreadLocalMap对象放在线程的threadLocals里面，作为FastThreadLocal.set()值的容器;
+            而值是实际存储在indexedVariables这个Object[]数组里面的。  
+            
+            FastThreadLocal.get()方法（slowGet），首先获取当前线程threadLocals中的InternalThreadLocalMap；然后通过indexedVariable()方法
+            通过索引从Object数组indexedVariables中获取这个值；最后如果获得的值不是InternalThreadLocalMap.UNSET则做类型转换并返回，
+            否则将这个数组此索引位置的值设置为null，然后将这个FastThreadLocal变量添加一个Set集合并重新放到数组variablesToRemoveIndex索引位置；
+            最后在registerCleaner()中设置清理标志BitSet（以备清理线程清理）,或者交由remove()方法进行释放。  
+            
+            新版本的registerCleaner()方法好像已经没有什么用了。
+            TODO：然后看不懂这个内存释放流程了，除了FastThreadLocalThread退出时removeAll(),
+            貌似没有其他自动释放的措施了。所以FTL内存安全在哪里？
+            
+            FastThreadLocal.set()方法，首先获取当前线程threadLocals中的InternalThreadLocalMap；然后通过索引直接获取到数组并设置值。
+            比较简单。  
+            
+            FastThreadLocal.remove()方法同样是先获取InternalThreadLocalMap，然后通过index和variablesToRemoveIndex释放内存。
+            
+            FastThreadLocalThread：
+            
+            FastThreadLocalThread类本身拥有一个InternalThreadLocalMap对象，而Thread是在ThreadLocalMap数组里面存储
+            InternalThreadLocalMap对象，所以FastThreadLocalThread的FastThreadLocal实现更简单。
+            ```
+            private InternalThreadLocalMap threadLocalMap；
+            ```
+            
+            set() get() remove() 方法和Thread中处理流程基本相同。
+ 
         * SelectorProvider  
         
             使用了Java SPI机制。
@@ -750,6 +793,7 @@
 
 
 ### Netty内存池
+
 
 
 ### Netty支持的各种序列化框架及编码解码器
