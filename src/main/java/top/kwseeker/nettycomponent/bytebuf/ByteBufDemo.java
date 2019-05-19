@@ -18,11 +18,16 @@ public class ByteBufDemo {
             //Pooled =================================================================
             //PooledHeapByteBuf ------------------------------------------------------
             ByteBuf pooledHeapByteBuf;
-
+            ByteBufAllocator pooledByteBufAllocator = PooledByteBufAllocator.DEFAULT;
+            pooledHeapByteBuf = pooledByteBufAllocator.heapBuffer(16);
+            pooledHeapByteBuf.release();
 
             //PooledDirectByteByf ---------------------------------------------------
-            ByteBuf pooledDirectByteBuf;
+            ByteBuf pooledDirectByteBufSubPage = pooledByteBufAllocator.directBuffer(16);   //小于8K
+            pooledDirectByteBufSubPage.release();
 
+            ByteBuf pooledDirectByteBufPage = pooledByteBufAllocator.directBuffer(10240);   //大于8K
+            pooledDirectByteBufPage.release();
 
             //Unpooled ===============================================================
             //UnpooledHeapByteBuf ----------------------------------------------------
@@ -54,6 +59,7 @@ public class ByteBufDemo {
             unpooledHeapByteBuf.release();
 
             //UnpooledDirectByteBuf --------------------------------------------------
+            //分配内存：PlatformDependent.allocateDirectNoCleaner(initialCapacity);
             ByteBuf unpooledDirectByteBuf;
             // 1.1)
             //unpooledDirectByteBuf = unpooledByteBufAllocator.directBuffer();

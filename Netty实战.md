@@ -195,7 +195,7 @@ AFTER clear()
 ##### Netty的内存分类
 
 + Pooled / Unpooled
-    从内存缓冲池中获取 或 直接在堆或Direct内存中创建。
+    从内存缓冲池(FastThreadLocal)中获取 或 直接在堆或Direct内存中创建。
     
 + Unsafe / 非Unsafe（框架自动选择，如果能取到Unsafe对象就创建Unsafe类型的ByteBuf）  
     JDK中Unsafe对象只可以取到内存指针地址并进行指针操作的对象；Java认为直接操作指针地址是不安全的。  
@@ -215,9 +215,10 @@ AFTER clear()
     直接在系统内存中分配空间，可以直接与IO交互。
   
 Question：  
-1）如何避免多线程内存分配竞争 
-
-2）不同大小的内存如何分配
+1）如何避免多线程内存分配竞争  
+    
+2）不同大小的内存如何分配  
+    不小于 Page 的内存分配是通过二叉树，而小于Page的内存分配使用位图进行分配。
 
 3）ioBuffer 和 compositeByteBuf   
     compositeByteBuf：多个ByteBuf提供一个聚合视图。在这里你可以根据需要添加或者删除ByteBuf实例。
@@ -389,6 +390,7 @@ Question：
 
     Question：  
     1）通过trunk和handle是如何命中一块物理内存的？  
+        TODO：这个需要研究 PlatformDependent 的实现了。  
     2）假如有1000个线程通过PoolThreadCache分配内存，每个线程都会分配16M的内存空间么？  
 
 + ByteBufUtil
@@ -408,23 +410,163 @@ Question：
     
 #### 字节级操作
 
-#### 引用计数
+#### 引用计数 与 内存释放
+
+引用计数主要用于 PooledDirectByteBuf、UnpooledDirectByteBuf 以及 PooledHeapByteBuf，
+但UnpooledHeapByteBuf也有使用。  
+对于PooledDirectByteBuf、PooledHeapByteBuf引用计数决定了什么时候将内存放回池中给其他线程复用，
+对于UnpooledDirectByteBuf引用计数决定了何时回收分配的内存；
+对于UnpooledHeapByteBuf虽然即使没有引用计数也可以被GC回收，但是有引用计数可以加快对无用内存的回收。
+
++ 引用计数的原理
+
++ 内存释放及放回缓存池的时机
     
+    引用计数为0的时候。
+    
++ 官方文档关于引用计数使用说明
+
+    [Reference counted objects](https://netty.io/wiki/reference-counted-objects.html)
+    
+    ByteBuf被创建的时候引用计数为1；
+    通过retain()方法引用计数+1，通过release()方法引用计数-1。
+    
+    注意：
+    实现ByteBufHolder的实现类实例共享它内部包含的同一个ByteBuf对象的引用计数，和通过ByteBuf.duplicate()派生的ByteBuf一样共享引用计数。
+    A buffer holder shares the reference count of the buffer it contains, just like a derived buffer.
+
+#### 内存泄漏检测（ResourceLeakDetector）
+
+内存泄漏检测的四个等级：
+```
+DISABLED    disables leak detection completely. Not recommended.
+SIMPLE      tells if there is a leak or not for 1% of buffers. Default.
+ADVANCED    tells where the leaked buffer was accessed for 1% of buffers.
+PARANOID    Same with ADVANCED except that it's for every single buffer. Useful for automated testing phase. 
+            You could fail the build if the build output contains 'LEAK: '
+```
+
+项目自动化测试的时候，可以将内存泄漏检测设置为最高级别PARANOID（会检测每一个ByteBuf，而不是像SIMPLE和ADVANCED是1%的取样检测），
+没有发现内存泄漏问题然后再检测等级设为SIMPLE。
+    
+但是应该注意在测试完成之后，将测试中分配的ByteBuf释放掉。
+```
+import static io.netty.util.ReferenceCountUtil.*;
+
+@Test
+public void testSomething() throws Exception {
+    // ReferenceCountUtil.releaseLater() will keep the reference of buf,
+    // and then release it when the test thread is terminated.
+    ByteBuf buf = releaseLater(Unpooled.directBuffer(512));
+    ...
+}
+```
+
 ### 6 ChannelHandler 和 ChannelPipeline
 
 #### Channel的生命周期
 
-+ 创建未注册 ChannelUnregistered
+一个Channel会依次经历下面四个生命周期：  
+1）创建未注册 ChannelUnregistered  
+2）注册未连接 ChannelRegistered  
+3）连接 ChannelActive  
+4）断开 ChannelInactive  
 
-    Channel何时被创建？
-
-+ 注册未连接 ChannelRegistered
-
-+ 连接 ChannelActive
-
-+ 断开 ChannelInactive
+Question：  
+这四个回调方法在源码中分别在何时被回调？  
 
 #### ChannelHandler
+
+##### 相关接口和类  
+![ChannelHandler类图](picture/netty-ChannelHandler.png)
+
+核心类：
+
++ ChannelHandler
+    ```
+    //ChannelHandler被加入到ChannelHandlerContext中时被回调
+    void handlerAdded(ChannelHandlerContext ctx) throws Exception;
+    //ChannelHandler被从ChannelHandlerContext中删除时被回调
+    void handlerRemoved(ChannelHandlerContext ctx) throws Exception;
+    //ChannelHandler回调方法出异常被回调
+    @Deprecated
+    void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception;
+    //被注解的ChannelHandler对应的同一个实例可以被加入到一个或者多个ChannelPipelines一次或者多次，而不会存在竞争条件
+    //sharable注解定义在ChannelHandler接口里面，该注解被使用是在ChannelHandlerAdapter类里面，
+    //被sharable注解标记过的实例都会存入当前加载线程的threadlocal里面（其实还是有个多个实例）
+    @Inherited
+    @Documented
+    @Target(ElementType.TYPE)
+    @Retention(RetentionPolicy.RUNTIME)
+    @interface Sharable {
+    }
+    ```
++ ChannelInboundHandler
+    ```
+    //当前Channel被注册到EventLoop后回调
+    void channelRegistered(ChannelHandlerContext ctx) throws Exception;
+    //当前Channel被从EventLoop注销后回调
+    void channelUnregistered(ChannelHandlerContext ctx) throws Exception;
+    //当前Channel活跃（即连接成功）的时候
+    void channelActive(ChannelHandlerContext ctx) throws Exception;
+    //当前Channel断开连接的时候
+    void channelInactive(ChannelHandlerContext ctx) throws Exception;
+    //当前Channel读取到数据的时候
+    void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception;
+    //当前Channel数据被读取完时触发
+    void channelReadComplete(ChannelHandlerContext ctx) throws Exception;
+    //用户事件触发时回调
+    void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception;
+    //Channel可写状态发生变化时触发
+    void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception;
+    @Override
+    @SuppressWarnings("deprecation")
+    void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception;
+    ```
++ ChannelOutboundHandler
+    ```
+    //bind操作执行前触发
+    void bind(ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise promise) throws Exception;
+    //connect操作执行前触发
+    void connect(
+            ChannelHandlerContext ctx, SocketAddress remoteAddress,
+            SocketAddress localAddress, ChannelPromise promise) throws Exception;
+    //disconnect操作执行前触发
+    void disconnect(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception;
+    //close操作执行前触发
+    void close(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception;
+    //deregister操作执行前触发
+    void deregister(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception;
+    //read操作执行前触发
+    void read(ChannelHandlerContext ctx) throws Exception;
+    //write操作执行前触发
+    void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception;
+    //flush操作执行前触发
+    void flush(ChannelHandlerContext ctx) throws Exception;
+    ```
++ ChannelHandlerAdapter
+
++ ChannelInboundHandlerAdapter
+
++ ChannelOutboundHandlerAdapter
+
++ ChannelHandlerContext
+    ChannelPipeline维护的是ChannelHandlerContext的双向链表，而不是ChannelHandler的双向链表；
+    但是可以通过ChannelHandlerContext获取ChannelHandler。
+    
+其他类：
+
++ ChannelDuplexHandler
+
++ CombinedChannelDuplexHandler 
+
++ SimpleUserEventChannelHandler
+
++ SimpleChannelInboundHandler
+
++ ChannelInitializer
+
+##### @Sharable注解
 
 ##### 内存泄漏检测
 
