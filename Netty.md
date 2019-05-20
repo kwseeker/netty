@@ -814,6 +814,145 @@
 
 ### Https加密
 
+### 定时器 HashWheelTimer
+
+HashWheelTimer实现代码比较简单，直接分析代码研究其原理，然后调试看细节实现。
+
+首先看下数据结构
+```
+//实例计数器，什么实例？HashWheelTimer实例，防止应用中创建过多的HashWheelTimer实例
+private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger();
+//太多实例的时候的警告标志？默认是零值false
+private static final AtomicBoolean WARNED_TOO_MANY_INSTANCES = new AtomicBoolean();
+//实例数量最大值，默认64
+private static final int INSTANCE_COUNT_LIMIT = 64;
+//1毫秒有多少纳秒, 1000000
+private static final long MILLISECOND_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
+//内存泄漏检测器
+private static final ResourceLeakDetector<HashedWheelTimer> leakDetector = ResourceLeakDetectorFactory.instance()
+        .newResourceLeakDetector(HashedWheelTimer.class, 1);
+//工作者状态更新器？基于反射的实用工具，可以对指定类的指定 volatile int 字段进行原子更新。
+private static final AtomicIntegerFieldUpdater<HashedWheelTimer> WORKER_STATE_UPDATER =
+        AtomicIntegerFieldUpdater.newUpdater(HashedWheelTimer.class, "workerState");
+//内存泄漏tracker
+private final ResourceLeakTracker<HashedWheelTimer> leak;
+//工作者（处理超时任务的）
+private final Worker worker = new Worker();
+//工作者线程（一个HashWheelTimer一个工作者线程）
+private final Thread workerThread;
+//工作者状态常量
+public static final int WORKER_STATE_INIT = 0;
+public static final int WORKER_STATE_STARTED = 1;
+public static final int WORKER_STATE_SHUTDOWN = 2;
+@SuppressWarnings({ "unused", "FieldMayBeFinal" })
+private volatile int workerState; // 0 - init, 1 - started, 2 - shut down
+//滴答周期
+private final long tickDuration;
+//wheel桶
+private final HashedWheelBucket[] wheel;
+//掩码？
+private final int mask;
+//工作者线程是否启动的标志，工作者线程启动之后startTimeInitialized.countDown(), 然后父线程就可以退出了
+private final CountDownLatch startTimeInitialized = new CountDownLatch(1);
+//
+private final Queue<HashedWheelTimeout> timeouts = PlatformDependent.newMpscQueue();
+private final Queue<HashedWheelTimeout> cancelledTimeouts = PlatformDependent.newMpscQueue();
+//待处理的定时任务计数
+private final AtomicLong pendingTimeouts = new AtomicLong(0);
+//最大
+private final long maxPendingTimeouts;
+//初始为0，工作者线程启动时赋值启动时刻的时间，用于判断工作者线程是否成功启动，startTime为0的话，父线程则一直等待工作者线程启动（将startTime赋值非0）
+private volatile long startTime;
+```
+
+然后看下构造方法（源码240行）
+```
+//1）通过 private static HashedWheelBucket[] createWheel(int ticksPerWheel) 方法创建一个有M(0<M<=2^30)个滴答数的轮子（HashedWheelBucket[]）,
+//   M的值是大于ticksPerWheel的2的最小的幂（如果ticksPerWheel=6，则M=8）。
+//   这个轮子长的样子：这个轮子是个数组，每个成员是HashedWheelBucket是个链表，链表里面存的HashedWheelTimeout（是个定时任务容器，包含定时器和任务以及时间），
+//2）确定每个滴答（tick）周期，最短为1ms。
+//3）检查HashedWheelTimer实例的个数以及是否警告定时器数量太多。
+```
+
+三个内部类
+
++ Worker
+
+    定时器处理定时任务调度的实现（轮询+线程sleep）。
+    
+    由下面这个处理过程可以知道：  
+    HashedWheelTimer能够处理大量的定时任务，
+    不适合处理耗时长的任务，不适合处理对时间精度要求高的任务（随着任务增多触发延迟会越来越严重）；
+    如果要处理耗时长的任务，需要将这个任务放到一个单独的HashedWheelTimer中处理；
+    
+    ```
+    public void run() {
+        // Initialize the startTime.
+        startTime = System.nanoTime();
+        if (startTime == 0) {
+            // We use 0 as an indicator for the uninitialized value here, so make sure it's not 0 when initialized.
+            startTime = 1;
+        }
+
+        // Notify the other threads waiting for the initialization at start().
+        startTimeInitialized.countDown();
+
+        do {
+            final long deadline = waitForNextTick();    //睡眠直到下一个tick的时间
+            if (deadline > 0) {
+                int idx = (int) (tick & mask);          //计算这个tick对应到wheel是哪一个HashWheelBucket
+                processCancelledTasks();                //移除被取消的定时任务
+                HashedWheelBucket bucket = wheel[idx];  //获取HashWheelBucket
+                transferTimeoutsToBuckets();            //从任务队列中取出任务加入到对应的格子(注意新建的任务并没有直接添加到wheel里面，
+                                                        //而是先加入Queue<HashedWheelTimeout> timeouts，再在每个tick，取出前最多10W个放入到wheel中的)
+                bucket.expireTimeouts(deadline);        //处理HashWheelBucket中每一个定时任务，轮询链表，如果round=0则执行run(),否则round-1
+                tick++;
+            }
+        } while (WORKER_STATE_UPDATER.get(HashedWheelTimer.this) == WORKER_STATE_STARTED);
+
+        // Fill the unprocessedTimeouts so we can return them from stop() method.
+        for (HashedWheelBucket bucket: wheel) {
+            bucket.clearTimeouts(unprocessedTimeouts);
+        }
+        for (;;) {
+            HashedWheelTimeout timeout = timeouts.poll();
+            if (timeout == null) {
+                break;
+            }
+            if (!timeout.isCancelled()) {
+                unprocessedTimeouts.add(timeout);
+            }
+        }
+        processCancelledTasks();
+    }
+    ```
+
++ HashedWheelTimeout
+
+    定时任务容器
+    
++ HashWheelBucket 
+
+    包含定时任务容器的双向链表
+
+使用方法：（很简单就是几个public方法）
+
+1）创建HashWheelTimer实例，其实是创建好数据结构（数组里面是链表，链表里面装着一个个的定时任务）和工作者线程；  
+2）启动HashWheelTimer实例，就是修改工作状态为WORKER_STATE_STARTED并启动工作者线程（startTime是为了等待工作者线程启动完成之后再退出父线程）；  
+3）然后是通过 newTimeout() 创建定时任务，并加入到Queue<HashedWheelTimeout> timeouts（注意不是直接加入HashedWheelBucket[] wheel中），
+   从timeouts添加到wheel是在每个tick时刻做的，这个任务添加到wheel后在第几个round以及第几个tick触发就计算好了；
+   同理如果要取消一个任务，先是将其放入到Queue<HashedWheelTimeout> cancelledTimeouts，然后在下一个tick时刻将其从HashedWheelBucket中移除。
+3.1）pendingTimeoutsCount + 1；
+3.2）启动工作者线程，如果已经启动则不会重复启动；
+3.3）创建新的HashedWheelTimeout对象（定时任务实体）并添加到 wheel 中，并返回这个对象。
+4）定时任务触发
+4.1）刚才创建了默认的工作者线程worker（Worker），它的run()方法处理任务调度，run内部实现就是依靠的Thread.sleep(), 
+根据我们提供的tickDuration，以及ticks，一圈一圈地转。
+
+参考HashedWheelTimerDemo.java
+
+补充：AtomicIntegerFieldUpdater，为什么更新volatile int字段需要使用这个类？
+参考：kwseeker/concurrency
 
 ### Netty实例
 
