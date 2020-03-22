@@ -6,7 +6,12 @@
 
   <groupId>top.kwseeker</groupId>
   <artifactId>nettydemo</artifactId>
+  <packaging>pom</packaging>
   <version>1.0-SNAPSHOT</version>
+  <modules>
+    <module>reactor-model</module>
+      <module>nio</module>
+  </modules>
 
   <name>nettydemo</name>
   <url>http://www.example.com</url>

@@ -15,13 +15,13 @@
 
 
 + 事件循环线程池初始化
-    
+  
     - NioEventLoopGroup
-        
+      
         ![NioEventLoopGroup类图](picture/netty-NioEventLoopGroup.png)
         
-        NioEventLoopGroup可以理解为一个线程池，内部维护了一组线程，每个线程负责处理多个Channel上的事件，
-        而一个Channel只对应于一个线程。  
+        NioEventLoopGroup可以理解为一个线程池，内部维护了一组线程，每个线程负责处理多个Channel上的事件，而一个Channel只对应于一个线程。  
+        
         Netty服务端应用一般会创建两个NioEventLoop线程池，其中一个线程池bossGroup只需要一个线程，对应一个父Channel，用于处理客户端连接；
         另一个workerGroup会有N个线程，处理客户端读写等请求，一个workerGroup对应多个子Channel。
         
@@ -110,14 +110,14 @@
         ```
 
         * ThreadPerTaskExecutor
-            
+          
             使用指定的线程工厂为每一个任务创建一个FastThreadLocalThread线程。
             ```
             public void execute(Runnable command) {
                 threadFactory.newThread(command).start();
             }
             ```
-                
+            
             使用的线程池工厂
             ```
             //传参（nioEventLoopGroup, false, 10, java.lang.ThreadGroup[name=main, maxpri=10]）
@@ -153,7 +153,7 @@
                 return t;
             }
             ```
-         
+        
         * FastThreadLocal 与 FastThreadLocalRunnable、FastThreadLocalThread  
         
             FastThreadLocal实现原理  
@@ -203,7 +203,7 @@
             ```
             
             set() get() remove() 方法和Thread中处理流程基本相同。
- 
+
         * SelectorProvider  
         
             使用了Java SPI机制。
@@ -244,7 +244,7 @@
                             });
                 }
             }
-            ```     
+            ```
             
             代码中涉及到了Java安全访问控制，简单研究下。参考 Java安全控制.md。
             
@@ -263,7 +263,7 @@
             Demo代码使用的这种默认实现，内部是创建的 KQueueSelectorProvider 的实例。
             
         * EventExecutor 和 EventExecutorGroup
-            
+          
             EventExecutor 继承 EventExecutorGroup，可以理解为事件处理器，在线程中处理事件的东西。
             是一个特殊的EventExecutorGroup, 有一些方便的方法可以查看一个线程是否在一个 event loop 中被执行。
             
@@ -289,7 +289,7 @@
               
                 内部实现了两种Chooser，PowerOfTwoEventExecutorChooser 和 GenericEventExecutorChooser；
                 当EventExecutor数组size为2的幂 (val & -val) == val 时，选用PowerOfTwoEventExecutorChooser。
-                  
+                
             * EventExecutorChooser
             
                 只有一个next()方法，返回一个新的EventExecutor。
@@ -374,7 +374,7 @@
                先从scheduleTaskQueue peek()一个任务，如果为空，则从taskQueue中取任务并返回；如果不为空，则获取这个计划任务的延迟纳秒数，
                选择是否等待地从taskQueue中取任务(注意不管剩余延迟是否是大于0，都先从taskQueue取任务)。如果从taskQueue取不到任务，则从scheduleTaskQueue中取已经可以运行（超过计划延时时间）的任务放到taskQueue；
                如果还是取不到，则返回null。
-               
+            
                总结下这个流程的规则：GlobalEventExecutor是可以同时处理计划任务和普通任务的，但是并不适用于处理计划任务，因为从上面的分析可以看到
                并不能保证计划任务按计划的时间点被处理。计划任务队列貌似只是为了按计划清理干完活的工作者的工作者线程的。  
                scheduleTaskQueue是阻塞优先级队列，猜想是通过计划的时间先后进行优先级排序的。
@@ -411,7 +411,7 @@
                                 fetchFromScheduledTaskQueue();
                                 task = taskQueue.poll();
                             }
-            
+                
                             if (task != null) {
                                 return task;
                             }
@@ -423,7 +423,7 @@
                如果任务是quietPeriodTask，执行quietPeriodTask run() （quietPeriodTask又重新入队了）, 
                然后默认是任务执行完了，然后通过CAS加两次判断（判断下taskQueue是否为空并且scheduleTaskQueue是否为空或size==1）
                看是否可以退出工作者线程。
-               
+            
                ```
                public void run() {  //这个才是quietPeriodTask的run(), 其实是将自己又重新加入计划任务队列了
                    assert executor().inEventLoop();
@@ -459,7 +459,7 @@
                    }
                }
                ```
-      
+        
             TODO：一直没有弄懂提前内置延时1s的计划任务quietPeriodTask是干什么的？
             前面说GlobalEventExecutor适用于时间短碎片化的任务，这么看来quietPeriodTask可能是用于作为任务处理完成的结束标志的。
     
@@ -468,7 +468,7 @@
             * DefaultSelectStrategyFactory
     
         * RejectedExecutionHandlers
-        
+    
 + 服务启动 ServerBootstrap
 
     ```
@@ -542,7 +542,7 @@
             ```
             
             * NioServerSocketChannel  
-                
+              
                 父channel创建并注册（initAndRegister()）流程：创建是通过反射newInstance()创建的，类型是serverBootstrap.channel(NioServerSocketChannel.class)
                 这行代码传进来的，所以创建的是一个NioServerSocketChannel。
                 TODO：默认的Selector是怎么样的？
@@ -577,7 +577,7 @@
                 ```
             
             * ServerBootStrap
-                
+              
                 父channel初始化流程：就是为父channel指定配置的，每创建一个新连接（父channel）就为其设置配置。
                 ```
                 void init(Channel channel) throws Exception {
@@ -803,7 +803,7 @@
 解码器是转换入站数据格式的，本质是 ChannelInboundHandler，因此也支持链接多个解码器以处理复杂的数据转换。
 
 + ByteToMessageDecoder、ReplayingDecoder
-    
+  
     将字节解码为消息（）
 
 + MessageToMessageDecoder
