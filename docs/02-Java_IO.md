@@ -1,10 +1,11 @@
-# IO
+# Java IO
 
-参考： 
+参考资料： 
 
-[Java IO Tutorial](http://tutorials.jenkov.com/java-io/index.html)  
++ [Java IO Tutorial](http://tutorials.jenkov.com/java-io/index.html) 
++ 《Java IO, NIO and NIO.2 》 偏向接口应用讲解
 
-### Java IO的作用
+## Java 经典IO (java.io)
 
 用于处理数据的输入输出，对应的就有数据的来源和去向，以及数据传输的形式。
 
@@ -129,13 +130,13 @@ Java IO 类UML：
         FileReader （字符流的方式读文件，继承InputStreamReader）   
         FileWriter （字符流的方式写文件）  
         RandomAccessFile  
- 
+
 + 内存的读写
 
     这里的内存指的是应用临时存储数据的空间，如一个数组一个String对象。
     
     - 相关类
-        
+      
         CharArrayReader  （可以以字符流的方式读取char数组）  
         CharArrayWriter  
         BufferedReader  
@@ -148,29 +149,29 @@ Java IO 类UML：
         StringWriter  
     
 + 线程间的通信  
-    
+  
     - 相关类
-        
+      
         PipedInputStream （字节流的形式）
         PipedOutputStream
         PipedReader （字符流的形式） 
         PipedWriter  
-        
+    
 + 应用间的网络通信
 
 + 标准IO输入输出
 
 + 过滤流
-    
+  
     - 相关类
     
         FilterInputStream
         FilterOutputStream
 
 + 工具类流
-    
+  
     - 相关类
-        
+      
         PushbackInputStream (预读并推回)  
         PushbackReader  
         SequenceInputStream (多个流的数据合并到一个流)  
@@ -186,7 +187,7 @@ Java IO 类UML：
         StreamTokenizer  
 
 + 各种流的相互转换
-    
+  
     - 转换的原理
     
         BufferedReader  

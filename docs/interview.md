@@ -7,7 +7,7 @@
 
   NIO核心是IO多路复用，基于操作系统底层IO多路复用实现，Linux系统的话是epoll模型，epoll原理核心实现在epoll_wait这个系统调用中实现（epoll_wait会死循环，监听通过epoll_ctl注册到epoll_create创建的epoll IO多路复用器中文件（一切皆文件）的事件，如果某些事件发生比如socket连接、读写等事件，则epoll_wait会返回对应事件集合）；
 
-  ![](./picture/epoll.png)
+  ![](picture/epoll.png)
 
   Selector.open()方法就是通过epoll_create创建一个epoll IO多路复用器；EPollArrayWrapper是JDK最底层的epoll封装类。Selector对象核心就是一个IO多路复用器。
   ```java

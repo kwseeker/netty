@@ -12,15 +12,15 @@ PS: 第一遍看接口，第二遍调试看实现。先了解框架的模型模�
 
 UML图
 
-![](./picture/Reactor uml.jpg)
+![](picture/Reactor%20uml.jpg)
 
 流程图
 
-![](./picture/Reactor sequence diagram.jpg)
+![](picture/Reactor%20sequence%20diagram.jpg)
 
 主从Reactor模型图：
 
-![](./picture/主从Reactor模型.png)
+![](picture/主从Reactor模型.png)
 
 ### Netty Server代码
 

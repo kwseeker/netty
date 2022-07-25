@@ -1,8 +1,105 @@
-## Java NIO 完全解析
+# Java NIO 完全解析
 
 Java源码下载（包括JVM）：http://hg.openjdk.java.net/jdk8u/jdk8u60/jdk/file/935758609767
 
 Java NIO 目的提升IO效率，处理性能（CPU不行搞GPU）已经不是瓶颈，IO性能才是软件性能的瓶颈。
+
+
+
+## NIO 三大组件
+
+### 通道Channel
+
+channel本质就是一个文件描述符，在 bind() 阶段将其绑定到了套接字接口，可以通过TCP/IP协议通信。
+
+对比经典IO，就相当于流。
+
+#### **ServerSocketChannelImpl 创建**
+
+主要字段是 fd、socket（bind阶段赋值）、provider。
+
+```java
+fd = {FileDescriptor@556} 	//ServerSocket文件描述符（文件描述符对应操作系统对底层硬件封装的操作接口）
+							//是操作底层文件（Linux内核所有设备都是文件）的应用空间接口（一般跟代码跟到系统调用对应的native方法就够了，更多详情参考Linux手册）
+							//通过Net.serverSocket()创建
+fdVal = 21					//fd的fd字段的值，对应系统调用open打开的文件句柄
+thread = 0					//long类型，ID of native thread currently blocked in this channel, for signalling
+lock = {Object@550} 
+stateLock = {Object@551} 	//同步更新ServerSocketChannel状态的锁
+state = 0					//ServerSocketchannel状态（-1：未初始化，0：启用中，1：强制关闭）
+localAddress = null			
+isReuseAddress = false
+socket = null				//ServerSocketAdaptor实例,由适配器模式的特点知道其实就是ServerSocketChannelImpl,只不过是包装了一层
+provider = {EPollSelectorProvider@510} 
+keys = null
+keyCount = 0
+keyLock = {Object@547} 
+regLock = {Object@548} 
+nonBlocking = false			//ServerSocket是否为阻塞模式，默认为阻塞模式
+closeLock = {Object@549} 
+open = true
+interruptor = null
+interrupted = null
+```
+
+> 关于FileDescriptor, 参考 [JDK源码阅读-FileDescriptor](https://www.cnblogs.com/yungyu16/p/13053912.html)
+>
+> 它内部的 int fd; 就是对应系统调用open()返回的文件句柄。
+>
+> fd = ::open64(path, oflag, mode);
+
+#### ServerSocketChannelImpl 绑定端口
+
+内部实际干了两件事，Net.bind(...) 和 Net.listen(...) 。
+
+关于Net.listen() 传参 backlog 的作用参考《Unix网络编程》P4.5，以及参考这篇文章[深入探索 Linux listen() 函数 backlog 的含义](https://blog.csdn.net/yangbodong22011/article/details/60399728)
+
+**socket backlog** 在Linux2.2之后代表**等待accept的完全建立的套接字的队列长度**，即下面ESTABLISHED但是还没有执行accept()的连接队列长度（如果backlog=5,实际可以存６个，即backlog+1）。
+
+<img src="picture/TCP建立连接三次握手.png" style="zoom: 50%;" />
+
+### Selector
+
+Linux系统对应EPollSelectorImpl。
+
+```java
+//这里创建了个管道（包含两个FileDescriptor），关于管道的工作原理，详细参考《Unix网络编程,第２卷》P4.3
+fd0 = 23	//用于读
+fd1 = 24	//用于写
+pollWrapper = {EPollArrayWrapper@584} 
+fdToKey = {HashMap@585}  size = 0
+closed = false
+interruptLock = {Object@579} 
+interruptTriggered = false
+selectedKeys = {HashSet@571}  size = 0
+keys = {HashSet@570}  size = 0
+publicKeys = {Collections$UnmodifiableSet@576}  size = 0
+publicSelectedKeys = {Util$3@578}  size = 0
+selectorOpen = {AtomicBoolean@567} "true"
+provider = {EPollSelectorProvider@556} 
+cancelledKeys = {HashSet@569}  size = 0
+interruptor = null
+```
+
+#### EPollSelectorImpl的管道
+
+EPollSelectorImpl 通过 IOUtil.makePipe() 调用系统调用pipe()创建了单向管道，返回long结果，高32位作为读文件描述符，低32位用于写文件描述符号。
+
+```java
+long pipeFds = IOUtil.makePipe(true);
+int readFd = (int) (pipeFds >>> 32);
+int writeFd = (int) pipeFds;
+```
+
+关于管道的工作原理，详细参考《Unix网络编程,第２卷》P4.3，有工作流程图。
+
+另外JDK也封装了IOUtil.makePipe()，实现了Java的管道。
+
+### Buffer
+
+
+
+
 
 
 
@@ -66,7 +163,7 @@ Java NIO 目的提升IO效率，处理性能（CPU不行搞GPU）已经不是瓶
 
 5）检测环境，和第一步一样通过SPI加载EPollSelectorProvider，然后创建EPollSelectorImpl实例；
 
-​	![EPollSelectorImpl初始化](./picture/EPollSelectorImpl初始化.png)
+​	![EPollSelectorImpl初始化](picture/EPollSelectorImpl初始化.png)
 
 ​	5.1）第一步创建了几个SelectionKey的集合，keys、selectedKeys、publicKeys、publicSelectedKeys，这几			个成员功能参考后面详细解释。
 
