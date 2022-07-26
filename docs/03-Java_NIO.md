@@ -10,9 +10,11 @@ Java NIO 目的提升IO效率，处理性能（CPU不行搞GPU）已经不是瓶
 
 ### 通道Channel
 
-channel本质就是一个文件描述符，在 bind() 阶段将其绑定到了套接字接口，可以通过TCP/IP协议通信。
+**channel本质就是文件描述符**，ServerSocketChannelImpl 在 bind() 阶段将其绑定到了套接字接口，可以通过TCP/IP协议通信。
 
-对比经典IO，就相当于流。
+> 看其他Channel实现类：DatagramChannelImpl、FileChannelImpl、SinkChannelImpl、SourceChannelImpl 等，也都包含着一个 FileDescriptor 字段，因为IO操作底层经过Linux的syscall, 而IO设备在内核中都是"文件"。 
+>
+> ”Linux一切皆文件“。
 
 #### **ServerSocketChannelImpl 创建**
 
@@ -22,7 +24,7 @@ channel本质就是一个文件描述符，在 bind() 阶段将其绑定到了�
 fd = {FileDescriptor@556} 	//ServerSocket文件描述符（文件描述符对应操作系统对底层硬件封装的操作接口）
 							//是操作底层文件（Linux内核所有设备都是文件）的应用空间接口（一般跟代码跟到系统调用对应的native方法就够了，更多详情参考Linux手册）
 							//通过Net.serverSocket()创建
-fdVal = 21					//fd的fd字段的值，对应系统调用open打开的文件句柄
+fdVal = 21					//FileDescriptor的fd字段的值，对应系统调用open打开的文件句柄
 thread = 0					//long类型，ID of native thread currently blocked in this channel, for signalling
 lock = {Object@550} 
 stateLock = {Object@551} 	//同步更新ServerSocketChannel状态的锁
@@ -50,9 +52,9 @@ interrupted = null
 
 #### ServerSocketChannelImpl 绑定端口
 
-内部实际干了两件事，Net.bind(...) 和 Net.listen(...) 。
+内部实际干了两件事，Net.bind(...) 和 Net.listen(...) ，它们分别间接调用了系统调用bind() 和 listen()。
 
-关于Net.listen() 传参 backlog 的作用参考《Unix网络编程》P4.5，以及参考这篇文章[深入探索 Linux listen() 函数 backlog 的含义](https://blog.csdn.net/yangbodong22011/article/details/60399728)
+关于Net.listen() 传参 backlog 的作用参考《Unix网络编程》P4.5，以及参考这篇文章[深入探索 Linux listen() 函数 backlog 的含义](https://blog.csdn.net/yangbodong22011/article/details/60399728)。
 
 **socket backlog** 在Linux2.2之后代表**等待accept的完全建立的套接字的队列长度**，即下面ESTABLISHED但是还没有执行accept()的连接队列长度（如果backlog=5,实际可以存６个，即backlog+1）。
 
@@ -60,7 +62,9 @@ interrupted = null
 
 ### Selector
 
-Linux系统对应EPollSelectorImpl。
+Linux系统对应的Selector实现类是EPollSelectorImpl。
+
+EPollSelectorImpl数据结构：
 
 ```java
 //这里创建了个管道（包含两个FileDescriptor），关于管道的工作原理，详细参考《Unix网络编程,第２卷》P4.3
@@ -83,7 +87,7 @@ interruptor = null
 
 #### EPollSelectorImpl的管道
 
-EPollSelectorImpl 通过 IOUtil.makePipe() 调用系统调用pipe()创建了单向管道，返回long结果，高32位作为读文件描述符，低32位用于写文件描述符号。
+EPollSelectorImpl 通过 IOUtil.makePipe() 调用系统调用pipe()创建了单向管道，返回long结果，高32位作为读文件描述符，低32位用于写文件描述符。
 
 ```java
 long pipeFds = IOUtil.makePipe(true);
@@ -93,7 +97,34 @@ int writeFd = (int) pipeFds;
 
 关于管道的工作原理，详细参考《Unix网络编程,第２卷》P4.3，有工作流程图。
 
-另外JDK也封装了IOUtil.makePipe()，实现了Java的管道。
+另外JDK也封装了IOUtil.makePipe()，实现了Java的管道，基本使用参考测试Demo: PipeTest.java。
+
+#### JDK 对 Linux epoll的封装
+
+EPollArrayWrapper（ 源码包路径：jdk\src\solaris\classes\sun\nio\ch ）是JDK对Linux epoll的封装。
+
+关于Linux epoll的原理, 参考《Linux epoll.md》
+
+```java
+//这三个本地方法对应epoll的3个系统调用
+//创建一个新的epoll实例,返回引用此epoll实例的文件描述符，当所有引用此epoll实例的文件描述符被关闭后，系统内核会自动释放此epoll实例的资源
+private native int epollCreate();
+//添加、修改、删除 epoll 实例 interest 列表中的条目（即添加、修改、删除epoll实例感兴趣的流对应的事件）
+// epfd: epoll实例的文件描述符
+// op: c操作类型: EPOLL_CTL_ADD EPOLL_CTL_MOD EPOLL_CTL_DEL
+// fd: 感兴趣的文件描述符（即被监听的对象）
+// event: 感兴趣的fd对象的事件集合
+private native void epollCtl(int paramInt1, int paramInt2, int paramInt3, int paramInt4);
+// 等待epoll实例监听的对象的事件发生，如果所有被监听对象都没有事件发生则会阻塞
+// epfd: epoll实例的文件描述符
+// events: 触发的事件集合指针（用于存储实际触发的事件的数据）
+// maxevents: 返回触发事件最大数量
+// timeout: 阻塞时间ms，-1：只要没有事件会无限期阻塞，0：即使没有事件也会立即返回
+// 返回值： 实际触发事件的个数
+private native int epollWait(long paramLong1, int paramInt1, long paramLong2, int paramInt2) throws IOException;
+```
+
+
 
 ### Buffer
 

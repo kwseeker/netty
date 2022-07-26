@@ -1,12 +1,14 @@
-## Linux epoll
+# Linux epoll
 
 Linux手册：[EPOLL(7) man](http://www.man7.org/linux/man-pages/man7/epoll.7.html) 
 
 GNU C 下载：[GNU libc](http://mirrors.nju.edu.cn/gnu/libc/)
 
-参考：[IO多路复用：select、poll、epoll示例]( https://blog.csdn.net/lisonglisonglisong/article/details/51328062 )
+参考：[Epoll 实现原理](https://www.jxhs.me/2021/04/08/linux%E5%86%85%E6%A0%B8Epoll-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/) (主要是这里面的图画得比较好)
 
-### 描述
+<img src="https://tva1.sinaimg.cn/large/008eGmZEly1gpc5cdhrr0j310f0u0djf.jpg" style="zoom:80%;" />
+
+## 描述
 
 可以监控多个文件描述符，查看是否可以在文件描述符上进行IO操作。
 
@@ -20,7 +22,7 @@ GNU C 下载：[GNU libc](http://mirrors.nju.edu.cn/gnu/libc/)
 
 三个系统调用
 
-![](picture/epoll.png)
+<img src="picture/epoll.png" style="zoom:50%;" />
 
 ```C
 // 创建一个新的epoll实例,返回引用此epoll实例的文件描述符，当所有引用此epoll实例的文件描述符被关闭后，系统内核会自动释放此epoll实例的资源
