@@ -1,12 +1,102 @@
 # Linux epoll
 
-Linux手册：[EPOLL(7) man](http://www.man7.org/linux/man-pages/man7/epoll.7.html) 
+参考资料：
 
-GNU C 下载：[GNU libc](http://mirrors.nju.edu.cn/gnu/libc/)
++ Linux手册：[EPOLL(7) man](http://www.man7.org/linux/man-pages/man7/epoll.7.html) 
 
-参考：[Epoll 实现原理](https://www.jxhs.me/2021/04/08/linux%E5%86%85%E6%A0%B8Epoll-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/) (主要是这里面的图画得比较好)
++ GNU C 下载：[GNU libc](http://mirrors.nju.edu.cn/gnu/libc/)
+
+  
+
+
+## IO多路复用实现对比(select、poll、epoll)
+
+IO多路复用就是指单个process同时处理多个连接的IO。
+
+### 高并发模型
+
+现在的**高并发模型**简单描述就是将连接上的消息处理分成两个阶段处理：
+
++ **消息等待**
+
+  针对BIO线程捆绑带来的巨大资源浪费以及线程频繁睡眠唤醒带来的低效问题，现多用**IO多路复用**（非阻塞IO）单个或少量process主动查询IO事件(事件查询是非常高效的没有很耗时操作)。
+
+  + **select**
+
+    存储关注的文件符及事件的是 fd_set 数据结构，其实是个**位图**。比如：fd_set **readset* 值为 10001000,表示关注文件描述符{3, 7} 上的可读事件。
+
+    **工作原理**：每次调用都会遍历各事件的fd_set位图（读、写、异常三种fd事件）,复杂度O(n)，检测对应FD上事件，保留fd_set上对应有事件发生的FD的位上的“1”，然后通过内存拷贝的方式将FD消息通知给用户空间。
+
+  + **poll**
+
+    存储关注的文件符及事件的是 **struct pollfd 的数组**。
+
+    ```c
+    struct pollfd {
+    int fd; /* descriptor to check */
+    short events; /* events of interest on fd */
+    short revents; /* events that occurred on fd */
+    };
+    ```
+
+    **工作原理**：每次调用都会遍历 pollfd *fds，复杂度O(n)，检测对应FD上事件，将发生的事件存储到revents，然后通过内存拷贝的方式将FD消息通知给用户空间。
+
+    相对于select: 支持更多事件类型；重新调用poll不需要像select那样重新设置关注的FD和事件；没有并发数量限制（数组长度任意，不过还是要受内存空间和系统支持打开的最大文件句柄数限制）。
+
+  + **epoll** 
+
+    epoll官方解释是：为处理大批量句柄而作了改进的poll。
+
+    select、poll 都是基于**轮询**实现的，当连接数很大时，尽管单个FD上的事件检测很快，但整体性能还是让人难以接受；
+
+    epoll 则采用了基于**事件通知回调**的方式，FD上发生事件会以回调的方式将触发的事件和FD值写入到内核事件就绪队列。后面第二章节详细分析。
+
++ **消息处理**
+
+  上一步的函数会返回表示“哪个FD触发了哪些事件”的数据，如: select 的 3个fd_set位图指针，poll 的 pollfd数组指针，epoll的事件就绪队列。
+
+  下一步就是消息处理，取出上一步返回的数据，针对FD和事件做相应的处理。
+
+### select、poll 原理流程图
+
+#### select 
+
+图片来自网文：[Linux select/poll机制原理分析 ](https://www.cnblogs.com/LoyenWang/p/12622904.html)
+
+![](picture/syscall-select.png)
+
+
+
+## Epoll工作原理
+
+### 基本使用
+
+```c
+int epoll_create(int size);
+int epoll_create1(int  flags);
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event); 
+int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
+```
+
+
+
+### 工作原理
+
+图片来自网文：[Epoll 实现原理](https://www.jxhs.me/2021/04/08/linux%E5%86%85%E6%A0%B8Epoll-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/) ，这个图画得比较好。
 
 <img src="https://tva1.sinaimg.cn/large/008eGmZEly1gpc5cdhrr0j310f0u0djf.jpg" style="zoom:80%;" />
+
+可以结合这篇博客看：[从linux源码看epoll](https://cloud.tencent.com/developer/article/1401558)，补充了上文中设备收到数据触发中断到最终执行回调的这段逻辑。
+
+主要分为两部分：
+
+1）向epoll注册文件描述符和关注的事件，实际是注册对应的事件监听回调函数；
+
+2）设备事件触发，最终执行回调函数，将就绪事件及文件描述符赋值到epoll_wait的events参数，并唤醒用户进程。
+
+
+
+
 
 ## 描述
 
