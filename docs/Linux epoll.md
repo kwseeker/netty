@@ -71,64 +71,31 @@ IO多路复用就是指单个process同时处理多个连接的IO。
 
 ### 基本使用
 
+<img src="picture/epoll.png" style="zoom:60%;" />
+
 ```c
-int epoll_create(int size);
-int epoll_create1(int  flags);
-int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event); 
-int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
-```
-
-
-
-### 工作原理
-
-图片来自网文：[Epoll 实现原理](https://www.jxhs.me/2021/04/08/linux%E5%86%85%E6%A0%B8Epoll-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/) ，这个图画得比较好。
-
-<img src="https://tva1.sinaimg.cn/large/008eGmZEly1gpc5cdhrr0j310f0u0djf.jpg" style="zoom:80%;" />
-
-可以结合这篇博客看：[从linux源码看epoll](https://cloud.tencent.com/developer/article/1401558)，补充了上文中设备收到数据触发中断到最终执行回调的这段逻辑。
-
-主要分为两部分：
-
-1）向epoll注册文件描述符和关注的事件，实际是注册对应的事件监听回调函数；
-
-2）设备事件触发，最终执行回调函数，将就绪事件及文件描述符赋值到epoll_wait的events参数，并唤醒用户进程。
-
-
-
-
-
-## 描述
-
-可以监控多个文件描述符，查看是否可以在文件描述符上进行IO操作。
-
-可以边沿触发或者水平触发。
-
-水平触发：默认工作模式，即当epoll_wait检测到某描述符事件就绪并通知应用程序时，应用程序可以不立即处理该事件；下次调用epoll_wait时，会再次通知此事件。
-
-边缘触发：当epoll_wait检测到某描述符事件就绪并通知应用程序时，应用程序必须立即处理该事件。如果不处理，下次调用epoll_wait时，不会再次通知此事件。（直到你做了某些操作导致该描述符变成未就绪状态了，也就是说边缘触发只在状态由未就绪变为就绪时通知一次）。
-
-结构体epoll可以看做两个列表的容器，其中 interest list 保存要监控的文件描述符（包含感兴趣的事件），ready list 保存IO已准备好可访问的文件描述符。
-
-三个系统调用
-
-<img src="picture/epoll.png" style="zoom:50%;" />
-
-```C
-// 创建一个新的epoll实例,返回引用此epoll实例的文件描述符，当所有引用此epoll实例的文件描述符被关闭后，系统内核会自动释放此epoll实例的资源
+// 创建一个新的eventepoll对象,返回引用此eventepoll对象的文件描述符，当所有引用此epoll实例的文件描述符被关闭后，系统内核会自动释放此epoll实例的资源
 int epoll_create(int size);		//linux 2.6.8 后 size参数被忽略
 int epoll_create1(int flags);	//flag等于0等同于 epoll_create()
-// 添加、修改、删除 epoll 实例 interest 列表中的条目（每一项都是一个关注某些epoll_event的文件描述符）
-// epfd: epoll实例的文件描述符
-// op: c操作类型: EPOLL_CTL_ADD EPOLL_CTL_MOD EPOLL_CTL_DEL
-// fd: 感兴趣的文件描述符（即被监听的对象）
-// event: 感兴趣的fd对象的事件集合
+// 往eventpoll中添加、修改、删除 监听的文件描述符及事件（每一项都是一个关注某些epoll_event的文件描述符），单个单个地增删改
+// 最终是封装成epitem对象注册到设备文件描述符的监听等待队列
+// 	epfd: epoll实例的文件描述符
+// 	op: c操作类型: EPOLL_CTL_ADD EPOLL_CTL_MOD EPOLL_CTL_DEL
+// 	fd: 感兴趣的文件描述符（即被监听的对象）
+// 	event: 感兴趣的fd对象的事件集合（更多事件查看后面说明）
+//    EPOLLIN ：表示对应的文件句柄可以读（包括对端SOCKET正常关闭）；
+//    EPOLLOUT：表示对应的文件句柄可以写；
+//    EPOLLPRI：表示对应的文件句柄有紧急的数据可读（这里应该表示有带外数据到来）；
+//    EPOLLERR：表示对应的文件句柄发生错误；
+//    EPOLLHUP：表示对应的文件句柄被挂断；
+//    EPOLLET：（不是事件、是一种工作模式）将EPOLL设为边缘触发(Edge Triggered)模式，这是相对于水平触发(Level Triggered)来说的。
+//    EPOLLONESHOT：只监听一次事件，当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到//      EPOLL队列里。
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 // 等待epoll实例监听的对象的事件发生，如果所有被监听对象都没有事件发生则会阻塞
-// epfd: epoll实例的文件描述符
-// events: 触发的事件集合指针
-// maxevents: 返回触发事件最大数量
-// timeout: 阻塞时间ms
+// 	epfd: epoll实例的文件描述符
+// 	events: 触发的事件集合指针
+// 	maxevents: 返回触发事件最大数量
+// 	timeout: 阻塞时间ms
 int epoll_wait(int epfd, struct epoll_event *events,
                       int maxevents, int timeout);
 int epoll_pwait(int epfd, struct epoll_event *events,
@@ -136,9 +103,9 @@ int epoll_pwait(int epfd, struct epoll_event *events,
                       const sigset_t *sigmask);
 ```
 
-epoll_event 结构：
+epoll_event的数据结构：
 
-```C
+``` c
 typedef union epoll_data {
 	void    *ptr;
 	int      fd;
@@ -152,25 +119,38 @@ struct epoll_event {
 }
 ```
 
-epoll 事件类型：
+eventpoll的关键数据结构：
 
-```txt
-EPOLLERR		表示对应的文件描述符发生错误；
-EPOLLET			将EPOLL设为边缘触发(Edge Triggered)模式，这是相对于水平触发(LT)来说的。
+```C
+struct eventpoll {
+    ...
+    wait_queue_head_t wq;
+    ...
+    struct list_head rdllist;	//就绪队列（双向队列）
+    struct rb_root rbr;		//监听的文件描述符号和事件（红黑数）
+    ...
+};
+```
+
+**epoll事件**
+
+```
+EPOLLERR        表示对应的文件描述符发生错误；
+EPOLLET         将EPOLL设为边缘触发(Edge Triggered)模式，这是相对于水平触发(LT)来说的。
 EPOLLEXCLUSIVE 
-EPOLLHUP		表示对应的文件描述符被挂断；
-	EPOLLHUP并不代表对端结束了连接，这一点需要和EPOLLRDHUP区分。通常情况下EPOLLHUP表示的是本端挂断。
-EPOLLIN			表示对应的文件描述符可以读（包括对端SOCKET正常关闭[即close]）；
-	EPOLLIN事件则只有当对端有数据写入时才会触发，ET模式触发一次后需要不断读取所有数据直到读完EAGAIN为	止。否则剩下的数据只有在下次对端有写入时才能一起取出来了。
+EPOLLHUP        表示对应的文件描述符被挂断；
+                并不代表对端结束了连接，这一点需要和EPOLLRDHUP区分。通常情况下EPOLLHUP表示的是本端挂断。
+EPOLLIN         表示对应的文件描述符可以读（包括对端SOCKET正常关闭[即close]）；
+                事件则只有当对端有数据写入时才会触发，ET模式触发一次后需要不断读取所有数据直到读完EAGAIN为止。否则剩下的数据只有在下次对端有写入时才能一起取出来了。
 EPOLLMSG
-EPOLLONESHOT	只监听一次事件;
-	当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到EPOLL队列里
-EPOLLOUT		表示对应的文件描述符可以写；
-	EPOLLOUT事件只有在连接时触发一次，其他时候想要触发，那你要先准备好下面条件：
-	1.某次write，写满了发送缓冲区，返回错误码为EAGAIN。
-	2.对端读取了一些数据，又重新可写了，此时会触发EPOLLOUT。
-	简单地说：EPOLLOUT事件只有在不可写到可写的转变时刻，才会触发一次，是边沿触发。
-	如果想强制触发一次，直接调用epoll_ctl重新设置一下event(event.events必须包含EPOLLOUT)就可以了。
+EPOLLONESHOT    只监听一次事件;
+                当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到EPOLL队列里
+EPOLLOUT        表示对应的文件描述符可以写；
+                事件只有在连接时触发一次，其他时候想要触发，那你要先准备好下面条件：
+                1.某次write，写满了发送缓冲区，返回错误码为EAGAIN。
+                2.对端读取了一些数据，又重新可写了，此时会触发EPOLLOUT。
+                简单地说：EPOLLOUT事件只有在不可写到可写的转变时刻，才会触发一次，是边沿触发。
+                如果想强制触发一次，直接调用epoll_ctl重新设置一下event(event.events必须包含EPOLLOUT)就可以了。
 EPOLLPRI		表示对应的文件描述符有紧急的数据可读（这里应该表示有带外数据到来）；
 EPOLLRDBAND
 EPOLLRDHUP		表示对端关闭连接或者正在读写时被强制关闭；
@@ -180,21 +160,124 @@ EPOLLWRBAND
 EPOLLWRNORM
 ```
 
-epoll 和 poll 区别：
+**关于LT和ET模式**
 
-(1) select==>时间复杂度O(n)
+LT模式（水平触发）：默认工作模式，即当epoll_wait检测到某描述符事件就绪并通知应用程序时，应用程序如果不立即处理该事件；下次调用epoll_wait时，会再次通知此事件。
 
-它仅仅知道了，有I/O事件发生了，却并不知道是哪那几个流（可能有一个，多个，甚至全部），我们只能无差别轮询所有流，找出能读出数据，或者写入数据的流，对他们进行操作。所以select具有O(n)的无差别轮询复杂度，同时处理的流越多，无差别轮询时间就越长。
+ET模式（边缘触发）：当epoll_wait检测到某描述符事件就绪并通知应用程序时，应用程序必须立即处理该事件。如果不处理，下次调用epoll_wait时，不会再次通知此事件。
 
-(2) poll==>时间复杂度O(n)
+测试案例：《Linux高性能服务器编程》9-3， 源码：epoll_et_server.c 。
 
-poll本质上和select没有区别，它将用户传入的数组拷贝到内核空间，然后查询每个fd对应的设备状态， 但是它没有最大连接数的限制，原因是它是基于链表来存储的.
+```verilog
+//测试代码，每次读取9字节。
+//当选用LT模式时，client发送 一个长度超过9字节的消息 “A-long-message-more-than-9-bytes"，结果触发了四次分了4次读取
+event trigger once
+get 9 bytes of content:A-long-me
+event trigger once
+get 9 bytes of content:ssage-mor
+event trigger once
+get 9 bytes of content:e-than-9-
+event trigger once
+get 7 bytes of content:bytes
+//当选用LT模式时，只会触发一次，必须循环读取完毕；否则没有读完的数据会在下一次和新数据拼接在一返回。
+event trigger once
+get 9 bytes of content:A-long-me
+get 9 bytes of content:ssage-mor
+get 9 bytes of content:e-than-9-
+get 7 bytes of content:bytes
+//LT模式，不循环读取完的话，那么没有读完的数据，跟随下次事件的数据一起返回
+//客户端依次发送“A-long-message-more-than-9-bytes" "1" "2" "3" "4" "5"，然后就变成了下面的样子（注意消息后面还带了回车换行符）
+event trigger once
+get 9 bytes of content:A-long-me
+event trigger once
+get 9 bytes of content:ssage-mor
+event trigger once
+get 9 bytes of content:e-than-9-
+event trigger once
+get 9 bytes of content:bytes
+1
+event trigger once
+get 9 bytes of content:
+2
+3
+4
+event trigger once
+get 4 bytes of content:
+5
+```
 
-(3) epoll==>时间复杂度O(1) ，就是借助上面 epoll_event 将流和事件关联起来实现降低复杂度的
+### 工作原理
 
-epoll可以理解为event poll，不同于忙轮询和无差别轮询，epoll会把哪个流发生了怎样的I/O事件通知我们。所以我们说epoll实际上是事件驱动（每个事件关联上fd）的，此时我们对这些流的操作都是有意义的。（复杂度降低到了O(1)）
+图片来自网文：[Epoll 实现原理](https://www.jxhs.me/2021/04/08/linux%E5%86%85%E6%A0%B8Epoll-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/) ，这个图画得比较好。
 
-### 实例代码
+<img src="https://tva1.sinaimg.cn/large/008eGmZEly1gpc5cdhrr0j310f0u0djf.jpg" style="zoom:80%;" />
 
-参考：[基于Linux epoll实现的Socket服务](https://github.com/kwseeker/netty/tree/master/epoll)
+可以结合这篇博客看：[从linux源码看epoll](https://cloud.tencent.com/developer/article/1401558)，补充了上文中缺失的设备收到数据触发中断到最终执行回调的这段逻辑。
+
+主要分为两部分：
+
+1）向epoll注册文件描述符和关注的事件，实际是注册对应的事件监听回调函数(ep_poll_callback())到设备文件描述符的监听等待队列；然后自己自旋阻塞；
+
+2）设备事件触发（产生中断信号），最终执行回调函数，将就绪事件及文件描述符赋值到epoll_wait的events参数，并唤醒用户进程。
+
+上面两篇文章还遗留了个问题没讲清：
+
+<u>epoll_wait何时返回？并发产生的事件是如何返回的？</u>
+
+找了下源码 epoll_wait() -> sys_epoll_wait() -> ep_poll(), 看起来有事件发生回调ep_poll_callback()，epoll_wait()就会立即返回。
+
+ep_poll()中有这么一段代码
+
+```c
+static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
+		   int maxevents, long timeout)
+{
+	......
+retry:
+	// 获取spinlock
+	spin_lock_irqsave(&ep->lock, flags);
+	// 将当前task_struct写入到waitqueue中以便唤醒
+	// wq_entry->func = default_wake_function;
+	init_waitqueue_entry(&wait, current);
+	// WQ_FLAG_EXCLUSIVE，排他性唤醒，配合SO_REUSEPORT从而解决accept惊群问题
+	wait.flags |= WQ_FLAG_EXCLUSIVE;
+	// 链入到ep的waitqueue中
+	__add_wait_queue(&ep->wq, &wait);
+	for (;;) {
+		// 设置当前进程状态为可打断
+		set_current_state(TASK_INTERRUPTIBLE);
+		// 检查当前线程是否有信号要处理，有则返回-EINTR
+		if (signal_pending(current)) {
+			res = -EINTR;
+			break;
+		}
+		spin_unlock_irqrestore(&ep->lock, flags);
+		/*
+			 * 主动让出处理器，等待ep_poll_callback()将当前进程
+			 * 唤醒或者超时,返回值是剩余的时间。从这里开始
+			 * 当前进程会进入睡眠状态，直到某些文件的状态
+			 * 就绪或者超时。当文件状态就绪时，eventpoll的回调
+			 * 函数ep_poll_callback()会唤醒在ep->wq指向的等待队列中的进程。
+			 */
+		jtimeout = schedule_timeout(jtimeout);
+		spin_lock_irqsave(&ep->lock, flags);
+	}
+	// 到这里，表明超时或者有事件触发等动作导致进程重新调度
+	__remove_wait_queue(&ep->wq, &wait);
+	// 设置进程状态为running
+	set_current_state(TASK_RUNNING);
+	......
+	// 检查是否有可用事件
+	eavail = !list_empty(&ep->rdllist) || ep->ovflist != EP_UNACTIVE_PTR;
+	......
+	// 向用户空间拷贝就绪事件
+	ep_send_events(ep, events, maxevents)
+}		   
+```
+
+
+
+### 测试代码
+
+https://github.com/kwseeker/netty/tree/master/epoll
 
