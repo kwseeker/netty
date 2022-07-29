@@ -116,12 +116,12 @@ private native int epollCreate();
 // event: 感兴趣的fd对象的事件集合
 private native void epollCtl(int paramInt1, int paramInt2, int paramInt3, int paramInt4);
 // 等待epoll实例监听的对象的事件发生，如果所有被监听对象都没有事件发生则会阻塞
-// epfd: epoll实例的文件描述符
-// events: 触发的事件集合指针（用于存储实际触发的事件的数据）
-// maxevents: 返回触发事件最大数量
+// pollAddress: 触发的事件集合指针（用于存储实际触发的事件的数据）；JNI中将其转换成 struct epoll_event *events = jlong_to_ptr(address);
+// numfds: 返回触发事件最大数量
 // timeout: 阻塞时间ms，-1：只要没有事件会无限期阻塞，0：即使没有事件也会立即返回
+ //epfd: epoll实例的文件描述符
 // 返回值： 实际触发事件的个数
-private native int epollWait(long paramLong1, int paramInt1, long paramLong2, int paramInt2) throws IOException;
+private native int epollWait(long pollAddress, int numfds, long timeout, int epfd) throws IOException
 ```
 
 
