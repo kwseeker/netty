@@ -8,6 +8,9 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Set;
 
+/**
+ * 创建网络通道(ServerSocket)、多路复用器（Selector）、将网络通道的连接事件注册到多路复用器上监听
+ */
 public class Reactor implements Runnable {
 
     final Selector selector;
@@ -44,19 +47,23 @@ public class Reactor implements Runnable {
     }
 
     void dispatch(SelectionKey k) {
-        Runnable r = (Runnable)(k.attachment());
+        Runnable r = (Runnable) (k.attachment());
         if (r != null)
             r.run();
     }
 
+    /**
+     * 监听处理连接事件
+     */
     class Acceptor implements Runnable { // inner
         public void run() {
             try {
                 SocketChannel c = serverSocket.accept();
                 if (c != null)
                     new Handler(selector, c);
+            } catch (IOException ex) {
+                /* ... */
             }
-            catch(IOException ex) { /* ... */ }
         }
     }
 }

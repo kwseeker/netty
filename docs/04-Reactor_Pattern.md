@@ -51,6 +51,8 @@ Reactor模式和Reactive Stream（响应式编程的一种规范）都称为响�
 
 **Handler**(图中黄色部分)处理事件，一般分为read、decode、compute、encode、send操作。
 
+
+
 #### 使用GoF状态对象模式改造
 
 状态模式：
