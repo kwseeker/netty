@@ -9,6 +9,7 @@ import io.netty.channel.socket.SocketChannel;
  */
 public class MyChannelInitializer extends ChannelInitializer<SocketChannel> {
 
+    //TODO initChannel 执行流程
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
         //这里ch是服务端SocketChannel
