@@ -75,13 +75,6 @@ public class ByteBufTest {
 
     }
 
-    @Test
-    public void testNioDirectByteBuffer() {
-        ByteBuffer directByteBuffer = ByteBuffer.allocateDirect(1024);
-        //directByteBuffer.clear().position(index).limit(index + length);
-        //directByteBuffer.
-    }
-
     private static boolean checkCleanerSupported() {
         //CleanerJava6.isSupported()
         ByteBuffer direct = ByteBuffer.allocateDirect(1);
