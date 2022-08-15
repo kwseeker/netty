@@ -7,6 +7,13 @@ import io.netty.handler.codec.ByteToMessageDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+/**
+ * 将字节流按自定义规则解码成字符串
+ *
+ * 分包和粘包问题其实和收发缓冲大小相关
+ *     public static final ChannelOption<Integer> SO_SNDBUF = valueOf("SO_SNDBUF");
+ *     public static final ChannelOption<Integer> SO_RCVBUF = valueOf("SO_RCVBUF");
+ */
 public class MyDecoder extends ByteToMessageDecoder {
 
     //数据包基础长度

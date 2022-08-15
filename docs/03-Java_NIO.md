@@ -207,31 +207,26 @@ Netty引入对象池，对NIO Buffer做了进一步优化，详细参考《Netty
 
 + NIO Buffer & Linux mmap & 直接内存
 + EpollArrayWrapper eventsLow & eventsHigh 细节
-+ 
 
++ java.nio 类组
 
+  还有些与系统相关的实现类在sun.nio.ch包中。
 
-#### 3 java.nio 类组
+  + Channel及Selector类
 
-还有些与系统相关的实现类在sun.nio.ch包中。
+  + Charset类
 
-+ Channel及Selector类
+  + File类
 
-+ Charset类
+  + Buffer类
 
-+ File类
+  + 异常类
 
-+ Buffer类
+  + CharBufferSpliterator
 
-+ 异常类
+  + ByteOrder
 
-+ CharBufferSpliterator
-
-+ ByteOrder
-
-+ Bits
-
-#### 4 NIO 组件
+  + Bits
 
 - OP_CONNECT 和 OP_WRITE事件触发后如何区分
 
