@@ -8,8 +8,10 @@ import io.netty.util.internal.ReflectionUtil;
 import org.junit.Test;
 import sun.misc.Unsafe;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 
@@ -62,7 +64,7 @@ public class ByteBufTest {
      * ２）如果支持Cleaner，allocator就创建直接缓冲否则创建堆缓冲
      */
     @Test
-    public void testPooledUnsafeDirectByteBuf() {
+    public void testPooledUnsafeDirectByteBuf() throws IOException {
         //Netty启动时没有指定 io.netty.allocator.type 或指定pooled 系统属性就默认用 PooledByteBufAllocator
         //ByteBufAllocator allocator = PooledByteBufAllocator.DEFAULT;
         ByteBufAllocator allocator =  new PooledByteBufAllocator(checkCleanerSupported());
@@ -71,8 +73,43 @@ public class ByteBufTest {
         ByteBuf byteBuf = allocator.ioBuffer(initialCap);
         //看内部源码是封装的Java NIO DirectByteBuffer
         //内部写实现：tmpBuf.clear().position(index).limit(index + length); in.read(tmpBuf);
-        byteBuf.writeBytes(new byte[]{2,34,68,69,68,69,3});
 
+        //顺序写
+        byteBuf.writeBytes("This is ByteBuf! Designed By Netty! A Convenient Buffer!".getBytes());
+        //随机写(按索引写, 不会修改readerIndex、writerIndex的值, 想当于覆盖)
+        byteBuf.setBytes(8, "BYTE_BUF".getBytes());
+
+        //随机读(按索引读，也不会修改readerIndex、writerIndex的值，调试时可以用于输出日志)
+        CharSequence charSequence = byteBuf.getCharSequence(0, byteBuf.readableBytes(), StandardCharsets.UTF_8);
+        System.out.println("ByteBuf content: " + charSequence.toString());
+        //顺序读
+        // 1
+        int maxReadBytes = 17, counter = 0;
+        StringBuilder sb = new StringBuilder();
+        while(byteBuf.readableBytes() > 0 && counter < maxReadBytes) {
+            sb.append((char)byteBuf.readByte());
+            counter++;
+        }
+        System.out.println("first read: " + sb.toString());
+        //压缩（将未读的数据移动到空间数据起始位置[将覆盖已读取的数据], 因为有数据复制操作性能不好（拿时间换空间），使用场景一般更侧重性能，所以非必要勿用）
+        System.out.println("discard before: readerIndex=" + byteBuf.readerIndex() + ", writerIndex=" + byteBuf.writerIndex());
+        byteBuf.discardReadBytes();
+        System.out.println("discard after: readerIndex=" + byteBuf.readerIndex() + ", writerIndex=" + byteBuf.writerIndex());
+        // 2 直接读到输出流, 返回byteBuf本身
+        System.out.print("second read: ");
+        ByteBuf partBuf = byteBuf.readBytes(System.out, 18);
+        System.out.println();
+
+        assert System.identityHashCode(byteBuf) == System.identityHashCode(partBuf);    //identityHashCode()返回内存地址hash不管hashCode()是否重写，这里不严谨，其实也是可能冲突的
+
+        //markReaderIndex() resetReaderIndex() 实现重复读
+        System.out.println("mark and reset: ");
+        partBuf.markReaderIndex();
+        partBuf.readBytes(System.out, partBuf.readableBytes());System.out.println();
+        partBuf.resetReaderIndex();
+        partBuf.readBytes(System.out, partBuf.readableBytes());
+
+        byteBuf.clear();
     }
 
     private static boolean checkCleanerSupported() {

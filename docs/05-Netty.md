@@ -105,6 +105,8 @@ ChannelPipeline是和SocketChannel绑定的，是一对一的关系。
 
 ByteBuf用作传输数据的读写缓冲。
 
+> 测试DEMO: ByteBufTest$testPooledUnsafeDirectByteBuf()
+
 主要操作有：
 
 + **缓冲实例构造与内存分配**
@@ -131,26 +133,40 @@ ByteBuf用作传输数据的读写缓冲。
 
     + **按几种基本数据类型**
 
-      如按byte、按int读写。
+      如按byte、按int读写（已byte、int为单位）。
 
     + **顺序读写**
 
-      像链表一样读写。
+      挨个一一读/写。
 
     + **随机读写**
 
       像数组一样使用索引读写。
+    
+      随机写（按索引写）：不会修改readerIndex、writerIndex的值，相当于数据覆盖（类比编辑器的Replace模式）。
+    
+      随机读（按索引读）：也不会修改readerIndex、writerIndex的值。
+    
+      > 由于不会修改readerIndex、writerIndex的值，调试时可以使用随机读读取内容用于打印日志。
+    >
+      > 随机读还可以用于重复读取缓冲数据。
+    >
+      > 重复读还可以通过mark
 
   + **复制和分片**
-
-  + **位置指针操作**（mark & Reset）
-
+  
+  + **位置指针操作**
+  
+    + **mark & Reset**
+  
+      标记与回滚，和NIO ByteBuffer 的含义是一样的。
+  
   + **数据查找**
-
+  
     indexOf() 或 定制ByteBufProcessor。
-
+  
   + **缓冲空间动态拓展**
-
+  
     
 
 
