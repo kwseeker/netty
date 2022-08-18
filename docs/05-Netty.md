@@ -167,9 +167,9 @@ ByteBuf用作传输数据的读写缓冲。
   
   + **缓冲空间动态拓展**
 
-### PooledUnsafeDirectByteBuf
+### PooledUnsafeDirectByteBuf 
 
-以Netty默认使用的ByteBuf实现PooledUnsafeDirectByteBuf为例分析实现原理。
+以Netty默认使用的ByteBuf实现PooledUnsafeDirectByteBuf为例分析实现原理(4.1.35版本)。
 
 <img src="picture/PooledUnsafeDirectByteBuf-UML.png" style="zoom: 80%;" />
 
@@ -227,6 +227,14 @@ ByteBuf用作传输数据的读写缓冲。
   PoolThreadCache cache;
   ByteBuffer tmpNioBuf;
   private ByteBufAllocator allocator;
+  ```
+
++ **PooledUnsafeDirectByteBuf**
+
+  提供了Recycler.Handle的实现，以及通过Unsafe实现前面`_getByte()`、`_setByte()`等等操作。
+
+  ```
+  private long memoryAddress;
   ```
 
   

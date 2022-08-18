@@ -14,6 +14,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.Random;
 
 public class ByteBufTest {
 
@@ -110,6 +111,44 @@ public class ByteBufTest {
         partBuf.readBytes(System.out, partBuf.readableBytes());
 
         byteBuf.clear();
+    }
+
+    /**
+     * 标准化的容量：
+     * 8482 -> 16384
+     * 5522 -> 8192
+     * 9894 -> 16384
+     * 7624 -> 8192
+     * 2732 -> 4096
+     */
+    @Test
+    public void testNormalizeCapacity() {
+        Random random = new Random();
+        System.out.println("标准化的容量：");
+        for (int i = 0; i < 5; i++) {
+            int reqCap = random.nextInt(10000);
+            System.out.println(reqCap + " -> " + normalizeCapacity(reqCap));
+        }
+    }
+
+    /**
+     * 求大于等于reqCapacity的最小2次幂
+     * 比如一个二进制数 10000 按下面执行，最终会发现最高位的1会填满1之后所有的0
+     */
+    private int normalizeCapacity(int reqCapacity) {
+        int normalizedCapacity = reqCapacity;
+        normalizedCapacity --;
+        normalizedCapacity |= normalizedCapacity >>>  1;
+        normalizedCapacity |= normalizedCapacity >>>  2;
+        normalizedCapacity |= normalizedCapacity >>>  4;
+        normalizedCapacity |= normalizedCapacity >>>  8;
+        normalizedCapacity |= normalizedCapacity >>> 16;
+        normalizedCapacity ++;
+
+        if (normalizedCapacity < 0) {
+            normalizedCapacity >>>= 1;
+        }
+        return normalizedCapacity;
     }
 
     private static boolean checkCleanerSupported() {
