@@ -166,8 +166,67 @@ ByteBuf用作传输数据的读写缓冲。
     indexOf() 或 定制ByteBufProcessor。
   
   + **缓冲空间动态拓展**
+
+### PooledUnsafeDirectByteBuf
+
+以Netty默认使用的ByteBuf实现PooledUnsafeDirectByteBuf为例分析实现原理。
+
+<img src="picture/PooledUnsafeDirectByteBuf-UML.png" style="zoom: 80%;" />
+
+类和接口说明：
+
++ **ReferenceCounted** 
+
+  采用引用计数法管理ByteBuf对象的回收。包含增加引用计数、减少引用计数、返回引用计数等方法定义。
+
++ **ByteBuf**
+
+  核心基础抽象类，定义了绝大部分的操作方法。
+
+  包括：容量、内存分配、字节顺序（大端/小端）、字段属性操作、读写、压合、复制、分片等等操作方法的定义，以及继承自ReferenceCounted和Comparable的方法。
+
++ **AbstractByteBuf** 
+
+  前面的类和接口只是方法定义，AbstractByteBuf是抽象实现。实现了ByteBuf定义的与下面数据结构相关的操作（但是又没有完全实现，依赖AbstractByteBuf新增的抽象方法[比如`_getByte()`、`_setByte()`等等]）。
+
+  ```java
+  int readerIndex;	//读索引（从哪里开始读，相当于ByteBuffer读模式的composition）
+  int writerIndex;	//写索引（从哪里开始写，相当于ByteBuffer写模式的composition）
+  private int markedReaderIndex;	//用于缓存读索引，用于reset
+  private int markedWriterIndex;	//用于缓存写索引，用于reset
+  private int maxCapacity;	//最大容量，相当于ByteBuffer的capacity
+  ```
+
++ **AbstractReferenceCountedByteBuf**
+
+  继承AbstractByteBuf，并进一步实现了引用技术与内存回收相关的方法（也是没有完全实现，引入了内存释放的抽象方法`deallocate()`）。
+
+  ```java
+  private volatile int refCnt = updater.initialValue();
+  //通过下面两个Unsafe实现的Updater进行更新
+  private static final long REFCNT_FIELD_OFFSET =
+      ReferenceCountUpdater.getUnsafeOffset(AbstractReferenceCountedByteBuf.class, "refCnt");
+  private static final AtomicIntegerFieldUpdater<AbstractReferenceCountedByteBuf> AIF_UPDATER =
+      AtomicIntegerFieldUpdater.newUpdater(AbstractReferenceCountedByteBuf.class, "refCnt");
+  ```
+
++ **PooledByteBuf**
+
+  继承AbstractReferenceCountedByteBuf，进一步实现内存分配回收。
+
+  ByteBuf 对象池数据结构:
+
+  ```java
+  private final Recycler.Handle<PooledByteBuf<T>> recyclerHandle;
+  protected PoolChunk<T> chunk;
+  protected long handle;
+  protected T memory;
+  protected int offset;
+  protected int length;
+  int maxLength;
+  PoolThreadCache cache;
+  ByteBuffer tmpNioBuf;
+  private ByteBufAllocator allocator;
+  ```
+
   
-    
-
-
-
