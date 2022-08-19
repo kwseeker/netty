@@ -8,6 +8,8 @@
 
 ## ByteBufAllocator
 
+这里主要说PooledByteBufAllocator，它在Netty中是共用的静态对象
+
 
 
 ## References
