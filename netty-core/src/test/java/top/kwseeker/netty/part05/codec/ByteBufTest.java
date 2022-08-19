@@ -67,8 +67,8 @@ public class ByteBufTest {
     @Test
     public void testPooledUnsafeDirectByteBuf() throws IOException {
         //Netty启动时没有指定 io.netty.allocator.type 或指定pooled 系统属性就默认用 PooledByteBufAllocator
-        //ByteBufAllocator allocator = PooledByteBufAllocator.DEFAULT;
-        ByteBufAllocator allocator =  new PooledByteBufAllocator(checkCleanerSupported());
+        //ByteBufAllocator allocator =  new PooledByteBufAllocator(checkCleanerSupported());
+        ByteBufAllocator allocator = PooledByteBufAllocator.DEFAULT;
         int initialCap = 1024;
         //内部：PooledUnsafeDirectByteBuf.newInstance(maxCapacity)
         ByteBuf byteBuf = allocator.ioBuffer(initialCap);
