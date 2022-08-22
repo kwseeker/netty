@@ -70,8 +70,10 @@ public class ByteBufTest {
         //ByteBufAllocator allocator =  new PooledByteBufAllocator(checkCleanerSupported());
         ByteBufAllocator allocator = PooledByteBufAllocator.DEFAULT;
         int initialCap = 1024;
-        //内部：PooledUnsafeDirectByteBuf.newInstance(maxCapacity)
-        ByteBuf byteBuf = allocator.ioBuffer(initialCap);
+        ByteBuf byteBuf = allocator.ioBuffer(initialCap);               //Small (512B、1024B、2048B、4096B)
+        ByteBuf byteBuf1 = allocator.ioBuffer(2048);        //Small
+        ByteBuf byteBuf2 = allocator.ioBuffer(256);         //Tiny (16B、32B、48B ...... 496B)
+        ByteBuf byteBuf3 = allocator.ioBuffer(8192 * 2);    //Normal (>= 1page)
         //看内部源码是封装的Java NIO DirectByteBuffer
         //内部写实现：tmpBuf.clear().position(index).limit(index + length); in.read(tmpBuf);
 
@@ -111,6 +113,28 @@ public class ByteBufTest {
         partBuf.readBytes(System.out, partBuf.readableBytes());
 
         byteBuf.clear();
+    }
+
+    @Test
+    public void testMemoryMap() {
+        int maxOrder = 11;
+        final byte[] memoryMap;
+        final byte[] depthMap;
+        int maxSubpageAllocs = 1 << maxOrder;   //2048
+
+        memoryMap = new byte[maxSubpageAllocs << 1];    //4096
+        depthMap = new byte[memoryMap.length];          //4096
+        int memoryMapIndex = 1;
+        for (int d = 0; d <= maxOrder; ++ d) { // move down the tree one level at a time
+            int depth = 1 << d;                 //1 2 4 8 ...
+            for (int p = 0; p < depth; ++ p) {
+                // in each level traverse left to right and set value to the depth of subtree
+                System.out.println(memoryMapIndex + " -> " + d);
+                memoryMap[memoryMapIndex] = (byte) d;
+                depthMap[memoryMapIndex] = (byte) d;
+                memoryMapIndex ++;
+            }
+        }
     }
 
     /**
