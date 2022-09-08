@@ -31,7 +31,7 @@ public class NettyServer {
             //bind和sync是核心启动操作
             //bind：创建Channel实例，注册ChannelHandler到Pipeline,将Channel注册到某组的Selector监听
             // 看源码知boosGroup只有一组有注册监听ServerSocketChannel的连接事件，因为一个Channel只能被一个Selector监听（多个Selector同时监听同一个Channel,只有一个能获取连接请求数据）
-            ChannelFuture f = b.bind(port).sync();
+            ChannelFuture f = b.bind(port).syncUninterruptibly();
             f.channel().closeFuture().sync();
         } catch (InterruptedException e) {
             e.printStackTrace();
