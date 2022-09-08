@@ -1,0 +1,134 @@
+# Netty常用功能
+
+
+
+## 数据传输协议
+
+### HTTP
+
+
+
+### WebSocket
+
+#### WebSocket工作原理
+
+分为两个阶段：握手阶段、传输阶段；握手阶段通过HTTP协议建立连接通道，传输阶段通过WebSocket协议进行通信。
+
+##### 握手阶段
+
+**客户端发送websocket连接请求格式**：（发送这个的时候，TCP连接貌似已经建立完成了，调试可以看到服务端的客户端Channel以及worker NioEventLoop都建立了；TODO：wireshark 抓包看看流程）
+
+```http
+GET /chat HTTP/1.1
+Host: server.example.com
+Upgrade: websocket																	//定义协议转换，转成websocket协议
+Connection: Upgrade																	//Upgrade、Connection这两个指明请求建立websocket连接
+Origin: http://example.com
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==		//是一个 Base64 encode 的值，由浏览器随机生成，用于结合返回值的Sec-WebSocket-Accept校验服务端WebSocket连接
+Sec-WebSocket-Protocol: chat, superchat							//标识了客户端支持的子协议的列表, 用户指定
+Sec-WebSocket-Version: 13														//选用的websocket协议版本
+```
+
+Netty中通过FullHttpRequest类接收握手HTTP请求。
+
+**服务端返回格式**：
+
+```http
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=		//通过Sec-WebSocket-Key计算得到的签名值，证明它支持请求的协议版本。
+```
+
+Sec-WebSocket-Key/Sec-WebSocket-Accept 主要作用在于提供基础的防护，减少恶意连接、意外连接，注意并不能保证安全性，因为都是默认是明文传输的，算法也是公开的，要保证安全需要添加TLS安全协议。
+
+Sec-WebSocket-Accept 算法：
+
+```stylus
+const key = crypto.createHash('sha1')
+      .update(req.headers['sec-websocket-key'] + constants.GUID, 'binary')
+      .digest('base64')
+```
+
+**Netty处理**：
+
+1）经过HttpRequestDecoder或HttpServerCodec解码后，是FullHttpRequest子类对象；
+
+2）使用WebSocketServerHandshakerFactory建立握手并返回应答给客户端。
+
+```java
+WebSocketServerHandshakerFactory wsFactory = new WebSocketServerHandshakerFactory(
+    "ws://" + httpRequest.headers().get(HttpHeaderNames.HOST), null, false);
+handShaker = wsFactory.newHandshaker(httpRequest);
+handShaker.handshake(ctx.channel(), httpRequest);
+```
+
+其中handshake()就是先创建一个应答`FullHttpResponse response = this.newHandshakeResponse(req, responseHeaders);`，将应答值通过pipeline编码器依次编码，最后通过`channel.writeAndFlush(response)`返回给客户端。
+
+##### 传输阶段
+
+Websocket协议的数据传输是按帧Frame格式传输的；Netty中通过WebSocketFrame类接收。
+
+**Frame数据结构**：
+
+![](picture/Websocket_Frame.png)
+
++ **FIN**： 1bit，用来表明这是否是一个消息的最后的消息片断，当然第一个消息片断也可能是最后的一个消息片断；
+
++ **RSV1，RSV2，RSV3**： 分别都是1位，如果双方之间没有约定自定义协议，那么这几位的值都必须为0,否则必须断掉WebSocket连接。在ws中就用到了RSV1来表示是否消息压缩了的；
+
++ **opcode**：4 bit，表示被传输帧的类型：
+
+  %x0 表示连续消息片断；
+  %x1 表示文本消息片断；
+  %x2 表未二进制消息片断；
+  %x3-7 为将来的非控制消息片断保留的操作码；
+  %x8 表示连接关闭；
+  %x9 表示心跳检查的ping；
+  %xA 表示心跳检查的pong；
+  %xB-F 为将来的控制消息片断的保留操作码。
+
++ **Mask**： 1 bit。定义传输的数据是否有加掩码,如果设置为1,掩码键必须放在masking-key区域，客户端发送给服务端的所有消息，此位都是1；
+
++ **Payload length**：传输数据的长度，以字节的形式表示：7位、7+16位、或者7+64位。如果这个值以字节表示是0-125这个范围，那这个值就表示传输数据的长度；如果这个值是126，则随后的两个字节表示的是一个16进制无符号数，用来表示传输数据的长度；如果这个值是127,则随后的是8个字节表示的一个64位无符合数，这个数用来表示传输数据的长度。多字节长度的数量是以网络字节的顺序表示。负载数据的长度为扩展数据及应用数据之和，扩展数据的长度可能为0,因而此时负载数据的长度就为应用数据的长度
+
++ **Masking-key**：0或4个字节，客户端发送给服务端的数据，都是通过内嵌的一个32位值作为掩码的；掩码键只有在掩码位设置为1的时候存在；
+
++ **Extension data**： x位，如果客户端与服务端之间没有特殊约定，那么扩展数据的长度始终为0，任何的扩展都必须指定扩展数据的长度，或者长度的计算方式，以及在握手时如何确定正确的握手方式。如果存在扩展数据，则扩展数据就会包括在负载数据的长度之内；
+
++ **Application data**： y位，任意的应用数据，放在扩展数据之后，应用数据的长度=负载数据的长度-扩展数据的长度；
+
++ **Payload data**： (x+y)位，负载数据为扩展数据及应用数据长度之和；
+
+**Netty处理**：
+
+1）经过HttpRequestDecoder或HttpServerCodec解码后，是WebSocketFrame子类对象，如TextWebSocketFrame，除了FIN、RSV位，其他都在ByteBuf中存储；
+
+2）根据WebSocketFrame类型进行不同的处理；IETF发布的WebSocket RFC，定义了6种帧，Netty为它们都提供了一个POJO实现。
+
++ BinaryWebSocketFrame——包含了二进制数据
+
++ TextWebSocketFrame——包含了文本数据
+
++ ContinuationWebSocketFrame——包含属于上一个BinaryWebSocketFrame或TextWebSocketFrame的文本数据或者二进制数据
+
++ CloseWebSocketFrame——表示一个CLOSE请求，包含一个关闭的状态码和关闭的原因
+
++ PingWebSocketFrame——请求传输一个PongWebSocketFrame
+
++ PongWebSocketFrame——作为一个对于PingWebSocketFrame的响应被发送
+
+一般使用TextWebSocketFrame传输业务数据。然后读取消息主体，分发给对应的消息处理器即可。
+
+#### HttpRequestDecoder & HttpResponseEncoder 编解码原理
+
+
+
+#### HttpServerCodec 编解码原理
+
+
+
+
+
+### Protobuf
+
