@@ -2,9 +2,95 @@
 
 
 
+## 编解码器
+
+
+
+ ## 消息收发
+
+### ChannelOutboundHandlerAdapter
+
+> TODO read() 方法的作用？何时触发执行？
+
+
+
+### 消息群发
+
+依靠ChannelGroup实现，
+
+```java
+private static ChannelGroup channelGroup = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+```
+
+> TODO: ChannelGroup原理。
+
+
+
+## 半包、粘包 & 拆包
+
+由于TCP底层收发缓冲区大小有限制，如果一个包太大需要分成多个包发送，这就是半包处理；如果一个包比较小，多个包可以一起发送，就是粘包处理。拆包是指从半包或粘包数据中读取完整的数据包。
+
+LinuxMint19配置的TCP收发缓冲区大小（分别是最小、默认、最大）。
+
+```
+➜  ~  cat /proc/sys/net/ipv4/tcp_rmem
+4096	87380	6291456
+➜  ~  cat /proc/sys/net/ipv4/tcp_wmem
+4096	16384	4194304
+```
+
+Netty提供了多个解码器，可以进行拆包的操作，比如
+
++ **LineBasedFrameDecoder** 
+
+  基于换行符号；读取的数据包如果没有换行符，那么会退出处理（注意要把读索引重置），继续读取数据包（之前传输来的的包的数据仍然在ByteBuf中），直到读取到换行符，然后一起处理；
+
+  如果数据包有一到多个换行符，会对数据包进行拆分成多个完整包。
+
++ **DelimiterBasedFrameDecoder** 
+
+  基于指定字符串，同上。
+
++ **FixedLengthFrameDecoder** 
+
+  基于字符串长度；读取的数据包如果长度不够，那么会退出处理，继续读取数据包，直到达到指定长度，然后一起处理；
+
+  如果数据包长度大于指定长度，会对数据包进行拆分成多个完整包。
+
+```java
+//ByteToMessageDecoder: in是存储读取到的包数据的ByteBuf对象，out是经过拆包处理后对象列表，每个对象对应一个完整数据包。
+protected abstract void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception;
+```
+
+当然也可以自行设计拆包方案。
+
+
+
+## 心跳检测 & 断线重连
+
+### 心跳检测
+
+心跳检测实现是 IdleStateHandler，加在服务端pipeline，构造器包含３个参数：
+
++ readerIdleTimeSeconds：读超时。即当在指定的时间间隔内没有从 Channel 读取到数据时，会触发一个 READER_IDLE 的
+  IdleStateEvent 事件。
++ writerIdleTimeSeconds：写超时。即当在指定的时间间隔内没有数据写入到 Channel 时，会触发一个 WRITER_IDLE 的
+  IdleStateEvent 事件。
++ allIdleTimeSeconds：读/写超时。即当在指定的时间间隔内没有读或写操作时，会触发一个 ALL_IDLE 的 IdleStateEvent 事件。
+
+事件会传递给下一个ChannelHandler的userEventTriggered()方法，用户需要自定义事件处理，比如断开连接。
+
+### 断线重连
+
+加在客户端。
+
+
+
 ## 数据传输协议
 
 ### HTTP
+
+Netty支持通过HTTP协议传输数据，使用 HttpResponseEncoder、HttpRequestDecoder 编解码器，可以在入站时将HTTP请求解析为HttpRequest对象，出站时将HttpResponse对象编码为HTTP返回值。
 
 
 
@@ -128,7 +214,25 @@ Websocket协议的数据传输是按帧Frame格式传输的；Netty中通过WebS
 
 
 
-
-
 ### Protobuf
+
+
+
+## 传输Java对象
+
+
+
+## 传输文件
+
+
+
+## 跨服务端通信
+
+
+
+## 多协议消息类型通信
+
+
+
+## 基于SSL实现双向加密验证
 
