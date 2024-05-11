@@ -12,6 +12,7 @@
     <module>reactor</module>
     <module>nio</module>
     <module>netty-core</module>
+    <module>reactor-netty</module>
   </modules>
   <name>nettydemo</name>
 

@@ -23,6 +23,7 @@ public class NettyServerHandler extends ChannelInboundHandlerAdapter {
         System.out.println("Local Port: " + channel.localAddress().getPort());
         System.out.println("Remote IP: " + channel.remoteAddress().getHostString());
         System.out.println("Remote Port: " + channel.remoteAddress().getPort());
+        System.out.println("pipeline identity: " + System.identityHashCode(channel.pipeline()));
 
         //将客户端channel加入分组
         ChannelGroupHolder.channelGroup.add(channel);

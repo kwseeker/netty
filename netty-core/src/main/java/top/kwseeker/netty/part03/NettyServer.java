@@ -34,6 +34,8 @@ public class NettyServer {
             // 看源码知boosGroup只有一组有注册监听ServerSocketChannel的连接事件，因为一个Channel只能被一个Selector监听（多个Selector同时监听同一个Channel,只有一个能获取连接请求数据）
             ChannelFuture f = b.bind(port).sync();
             f.channel().closeFuture().sync();
+
+            Thread.sleep(5000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         } finally {
